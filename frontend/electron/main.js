@@ -19,15 +19,23 @@ function startBackend() {
   console.log(`Starting backend from: ${binaryPath}`);
   
   backendProcess = spawn(binaryPath, [], {
-    env: { ...process.env, NIVEXQL_PORT: '8081' }
+    env: { 
+      ...process.env, 
+      NIVEXQL_PORT: '8081',
+      PYTHONUNBUFFERED: '1'
+    }
   });
 
   backendProcess.stdout.on('data', (data) => {
-    console.log(`[Backend]: ${data}`);
+    console.log(`[Backend]: ${data.toString().trim()}`);
   });
 
   backendProcess.stderr.on('data', (data) => {
-    console.error(`[Backend Error]: ${data}`);
+    console.error(`[Backend Error]: ${data.toString().trim()}`);
+  });
+
+  backendProcess.on('error', (err) => {
+    console.error(`[Backend Spawn Error]:`, err);
   });
 
   backendProcess.on('close', (code) => {
@@ -52,9 +60,7 @@ function createWindow() {
   
   mainWindow.loadURL(startUrl);
 
-  if (process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.webContents.openDevTools();
-  }
+  mainWindow.webContents.openDevTools();
 
   mainWindow.on('closed', () => {
     mainWindow = null;
