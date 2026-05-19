@@ -176,10 +176,17 @@ export default function NotebookCellComponent({ cell, index }: Props) {
 
     try {
       const { sql: generated, suggested_name } = await apiGenerateSql(cell.prompt, schema, globalContext);
-      updateCell(cell.id, { 
-        sql: generated, 
+
+      // Auto-format AI output before displaying — manual edits use the Format button
+      let formattedSql = generated;
+      try {
+        formattedSql = format(generated, { language: 'postgresql', keywordCase: 'upper' });
+      } catch { /* if formatter fails, fall back to raw output */ }
+
+      updateCell(cell.id, {
+        sql: formattedSql,
         vizType: 'bar',
-        name: suggested_name || cell.name 
+        name: suggested_name || cell.name
       });
       
       try {
@@ -252,6 +259,51 @@ export default function NotebookCellComponent({ cell, index }: Props) {
       const formatted = format(cell.sql, { language: 'postgresql', keywordCase: 'upper' });
       setSql(formatted);
     } catch {}
+  };
+
+  // Lightweight inline markdown renderer — bold, italic, code, headers, lists, hr
+  const renderMarkdown = (text: string) => {
+    return text.split('\n').map((line, lineIdx) => {
+      // Horizontal rule
+      if (/^---+$/.test(line.trim())) {
+        return <hr key={lineIdx} className="border-surface-border my-2" />;
+      }
+      // Headers
+      const h3 = line.match(/^###\s+(.+)/);
+      if (h3) return <h3 key={lineIdx} className="font-bold text-text-primary mt-3 mb-1">{h3[1]}</h3>;
+      const h2 = line.match(/^##\s+(.+)/);
+      if (h2) return <h2 key={lineIdx} className="font-bold text-text-primary text-sm mt-3 mb-1">{h2[1]}</h2>;
+      const h1 = line.match(/^#\s+(.+)/);
+      if (h1) return <h1 key={lineIdx} className="font-bold text-text-primary text-base mt-3 mb-1">{h1[1]}</h1>;
+      // Bullet list items
+      const bullet = line.match(/^[-*]\s+(.+)/);
+      const content = bullet ? bullet[1] : line;
+      // Inline: bold, italic, code
+      const inlineRender = (raw: string, key: number) => {
+        const parts: React.ReactNode[] = [];
+        const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g;
+        let last = 0, m;
+        while ((m = re.exec(raw)) !== null) {
+          if (m.index > last) parts.push(raw.slice(last, m.index));
+          if (m[2]) parts.push(<strong key={m.index} className="font-bold text-text-primary">{m[2]}</strong>);
+          else if (m[3]) parts.push(<em key={m.index} className="italic">{m[3]}</em>);
+          else if (m[4]) parts.push(<code key={m.index} className="font-mono bg-surface-muted px-1 rounded text-accent text-[0.85em]">{m[4]}</code>);
+          last = m.index + m[0].length;
+        }
+        if (last < raw.length) parts.push(raw.slice(last));
+        return <span key={key}>{parts}</span>;
+      };
+      if (bullet) {
+        return (
+          <div key={lineIdx} className="flex gap-2 my-0.5">
+            <span className="text-accent mt-0.5 shrink-0">•</span>
+            <span>{inlineRender(content, lineIdx)}</span>
+          </div>
+        );
+      }
+      if (!line.trim()) return <div key={lineIdx} className="h-2" />;
+      return <div key={lineIdx}>{inlineRender(content, lineIdx)}</div>;
+    });
   };
 
   return (
@@ -524,8 +576,8 @@ export default function NotebookCellComponent({ cell, index }: Props) {
               <div className="p-2 bg-accent/20 rounded-lg h-fit">
                 <MessageSquare className="w-4 h-4 text-accent" />
               </div>
-              <div className={`flex-1 text-${uiTextSize} text-text-secondary leading-relaxed whitespace-pre-wrap`}>
-                {cell.insights}
+              <div className={`flex-1 text-${uiTextSize} text-text-secondary leading-relaxed`}>
+                {renderMarkdown(cell.insights)}
               </div>
             </div>
           )}

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
 export interface ConnectionConfig {
   id: string;
@@ -125,97 +126,126 @@ const createCell = (): NotebookCell => ({
   isPinned: false,
 });
 
-export const useAppStore = create<AppState>((set) => ({
-  connections: [],
-  activeConnectionId: null,
-  schema: [],
-  showConnModal: false,
-  cells: [createCell()],
-  activeCellId: null,
+// Sanitize cells loaded from storage — reset transient runtime state so they always start clean
+const sanitizeCell = (c: NotebookCell): NotebookCell => ({
+  ...c,
+  agentStatus: 'idle',
+  agentLog: [],
+});
 
-  llmProvider: 'ollama',
-  llmModel: 'qwen3:14b',
-  llmApiKey: '',
-  llmEndpoint: 'http://localhost:11434',
-  llmStatus: 'unknown',
-  favorites: [],
-  globalContext: '',
-  sidebarWidth: 260,
-  editorHeight: 40,
-  showSchemaDiagram: false,
-  uiTextSize: 'sm',
-  editorTheme: 'nvn-dark',
-  queryHistory: [],
+export const useAppStore = create<AppState>()(
+  persist(
+    (set) => ({
+      connections: [],
+      activeConnectionId: null,
+      schema: [],
+      showConnModal: false,
+      cells: [createCell()],
+      activeCellId: null,
 
-  addConnection: (c) => set((s) => ({ connections: [...s.connections, c] })),
-  removeConnection: (id) => set((s) => ({
-    connections: s.connections.filter(c => c.id !== id),
-    activeConnectionId: s.activeConnectionId === id ? null : s.activeConnectionId
-  })),
-  setActiveConnection: (id) => set({ activeConnectionId: id }),
-  setSchema: (tables) => set({ schema: tables }),
-  setSidebarWidth: (fn) => set((s) => ({ sidebarWidth: fn(s.sidebarWidth) })),
-  setEditorHeight: (fn) => set((s) => ({ editorHeight: fn(s.editorHeight) })),
-  setShowSchemaDiagram: (showSchemaDiagram) => set({ showSchemaDiagram }),
-  setShowConnModal: (showConnModal) => set({ showConnModal }),
+      llmProvider: 'ollama',
+      llmModel: 'qwen3:14b',
+      llmApiKey: '',
+      llmEndpoint: 'http://localhost:11434',
+      llmStatus: 'unknown',
+      favorites: [],
+      globalContext: '',
+      sidebarWidth: 260,
+      editorHeight: 40,
+      showSchemaDiagram: false,
+      uiTextSize: 'sm',
+      editorTheme: 'nvn-dark',
+      queryHistory: [],
 
-  addCell: () => set((s) => {
-    const newCell = createCell();
-    return {
-      cells: [...s.cells, newCell],
-      activeCellId: newCell.id
-    };
-  }),
-  removeCell: (id) => set((s) => ({
-    cells: s.cells.filter(c => c.id !== id),
-    activeCellId: s.activeCellId === id ? (s.cells.length > 1 ? s.cells[0].id : null) : s.activeCellId
-  })),
-  setActiveCell: (id) => set({ activeCellId: id }),
-  updateCell: (id, updates) => set((s) => ({
-    cells: s.cells.map(c => c.id === id ? { ...c, ...updates } : c)
-  })),
-  moveCell: (draggedId, targetId, position) => set((s) => {
-    const fromIndex = s.cells.findIndex(c => c.id === draggedId);
-    let toIndex = s.cells.findIndex(c => c.id === targetId);
-    if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return s;
-    
-    const newCells = [...s.cells];
-    const [moved] = newCells.splice(fromIndex, 1);
-    
-    // Re-find target index because array length changed
-    toIndex = newCells.findIndex(c => c.id === targetId);
-    if (position === 'after') toIndex += 1;
-    
-    newCells.splice(toIndex, 0, moved);
-    return { cells: newCells };
-  }),
-  togglePinCell: (id) => set((s) => {
-    const mapped = s.cells.map(c => c.id === id ? { ...c, isPinned: !c.isPinned } : c);
-    const pinned = mapped.filter(c => c.isPinned);
-    const unpinned = mapped.filter(c => !c.isPinned);
-    return { cells: [...pinned, ...unpinned] };
-  }),
-  appendAgentLog: (id, log) => set((s) => ({
-    cells: s.cells.map(c => c.id === id ? { ...c, agentLog: [...c.agentLog, log] } : c)
-  })),
-  clearAgentLog: (id) => set((s) => ({
-    cells: s.cells.map(c => c.id === id ? { ...c, agentLog: [] } : c)
-  })),
+      addConnection: (c) => set((s) => ({ connections: [...s.connections, c] })),
+      removeConnection: (id) => set((s) => ({
+        connections: s.connections.filter(c => c.id !== id),
+        activeConnectionId: s.activeConnectionId === id ? null : s.activeConnectionId
+      })),
+      setActiveConnection: (id) => set({ activeConnectionId: id }),
+      setSchema: (tables) => set({ schema: tables }),
+      setSidebarWidth: (fn) => set((s) => ({ sidebarWidth: fn(s.sidebarWidth) })),
+      setEditorHeight: (fn) => set((s) => ({ editorHeight: fn(s.editorHeight) })),
+      setShowSchemaDiagram: (showSchemaDiagram) => set({ showSchemaDiagram }),
+      setShowConnModal: (showConnModal) => set({ showConnModal }),
 
-  setLlmProvider: (llmProvider) => set({ llmProvider }),
-  setLlmModel: (llmModel) => set({ llmModel }),
-  setLlmApiKey: (llmApiKey) => set({ llmApiKey }),
-  setLlmEndpoint: (llmEndpoint) => set({ llmEndpoint }),
-  setLlmStatus: (llmStatus) => set({ llmStatus }),
-  setLlmConfig: (config) => set((s) => ({ ...s, ...config })),
-  setGlobalContext: (globalContext) => set({ globalContext }),
-  addFavorite: (sql) => set((s) => ({
-    favorites: s.favorites.includes(sql) ? s.favorites : [...s.favorites, sql]
-  })),
-  setUiTextSize: (uiTextSize) => set({ uiTextSize }),
-  setEditorTheme: (editorTheme) => set({ editorTheme }),
-  addQueryHistory: (entry) => set((s) => ({
-    queryHistory: [{ ...entry, id: Math.random().toString(36).substring(2,9), timestamp: Date.now() }, ...s.queryHistory].slice(0, 100)
-  })),
-  clearQueryHistory: () => set({ queryHistory: [] }),
-}));
+      addCell: () => set((s) => {
+        const newCell = createCell();
+        return { cells: [...s.cells, newCell], activeCellId: newCell.id };
+      }),
+      removeCell: (id) => set((s) => ({
+        cells: s.cells.filter(c => c.id !== id),
+        activeCellId: s.activeCellId === id ? (s.cells.length > 1 ? s.cells[0].id : null) : s.activeCellId
+      })),
+      setActiveCell: (id) => set({ activeCellId: id }),
+      updateCell: (id, updates) => set((s) => ({
+        cells: s.cells.map(c => c.id === id ? { ...c, ...updates } : c)
+      })),
+      moveCell: (draggedId, targetId, position) => set((s) => {
+        const fromIndex = s.cells.findIndex(c => c.id === draggedId);
+        let toIndex = s.cells.findIndex(c => c.id === targetId);
+        if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return s;
+        const newCells = [...s.cells];
+        const [moved] = newCells.splice(fromIndex, 1);
+        toIndex = newCells.findIndex(c => c.id === targetId);
+        if (position === 'after') toIndex += 1;
+        newCells.splice(toIndex, 0, moved);
+        return { cells: newCells };
+      }),
+      togglePinCell: (id) => set((s) => {
+        const mapped = s.cells.map(c => c.id === id ? { ...c, isPinned: !c.isPinned } : c);
+        const pinned = mapped.filter(c => c.isPinned);
+        const unpinned = mapped.filter(c => !c.isPinned);
+        return { cells: [...pinned, ...unpinned] };
+      }),
+      appendAgentLog: (id, log) => set((s) => ({
+        cells: s.cells.map(c => c.id === id ? { ...c, agentLog: [...c.agentLog, log] } : c)
+      })),
+      clearAgentLog: (id) => set((s) => ({
+        cells: s.cells.map(c => c.id === id ? { ...c, agentLog: [] } : c)
+      })),
+
+      setLlmProvider: (llmProvider) => set({ llmProvider }),
+      setLlmModel: (llmModel) => set({ llmModel }),
+      setLlmApiKey: (llmApiKey) => set({ llmApiKey }),
+      setLlmEndpoint: (llmEndpoint) => set({ llmEndpoint }),
+      setLlmStatus: (llmStatus) => set({ llmStatus }),
+      setLlmConfig: (config) => set((s) => ({ ...s, ...config })),
+      setGlobalContext: (globalContext) => set({ globalContext }),
+      addFavorite: (sql) => set((s) => ({
+        favorites: s.favorites.includes(sql) ? s.favorites : [...s.favorites, sql]
+      })),
+      setUiTextSize: (uiTextSize) => set({ uiTextSize }),
+      setEditorTheme: (editorTheme) => set({ editorTheme }),
+      addQueryHistory: (entry) => set((s) => ({
+        queryHistory: [
+          { ...entry, id: Math.random().toString(36).substring(2, 9), timestamp: Date.now() },
+          ...s.queryHistory
+        ].slice(0, 100)
+      })),
+      clearQueryHistory: () => set({ queryHistory: [] }),
+    }),
+    {
+      name: 'nivexql-storage', // localStorage key
+      storage: createJSONStorage(() => localStorage),
+      // Only persist meaningful state — exclude all transient/runtime-only fields
+      partialize: (state) => ({
+        connections: state.connections,
+        activeConnectionId: state.activeConnectionId,
+        cells: state.cells.map(sanitizeCell),
+        activeCellId: state.activeCellId,
+        llmProvider: state.llmProvider,
+        llmModel: state.llmModel,
+        llmApiKey: state.llmApiKey,
+        llmEndpoint: state.llmEndpoint,
+        globalContext: state.globalContext,
+        sidebarWidth: state.sidebarWidth,
+        editorHeight: state.editorHeight,
+        uiTextSize: state.uiTextSize,
+        editorTheme: state.editorTheme,
+        queryHistory: state.queryHistory,
+        favorites: state.favorites,
+      }),
+    }
+  )
+);
