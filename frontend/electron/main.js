@@ -1,4 +1,5 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, dialog } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -34,6 +35,24 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
+
+  // Setup auto-update checks for packaged production builds
+  if (app.isPackaged) {
+    autoUpdater.on('update-downloaded', () => {
+      dialog.showMessageBox({
+        type: 'info',
+        title: 'Update Ready',
+        message: 'A new version of NivexQL has been downloaded. Restart the application to apply updates.',
+        buttons: ['Restart', 'Later']
+      }).then((result) => {
+        if (result.response === 0) {
+          autoUpdater.quitAndInstall();
+        }
+      });
+    });
+
+    autoUpdater.checkForUpdatesAndNotify();
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

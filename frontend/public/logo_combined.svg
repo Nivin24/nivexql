@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 64" width="240" height="64">
+  <defs>
+    <!-- Purple to Cyber Cyan Gradient -->
+    <linearGradient id="cyber-grad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#8b5cf6" />
+      <stop offset="50%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#06b6d4" />
+    </linearGradient>
+
+    <!-- Metallic Edge Highlight -->
+    <linearGradient id="metal-edge" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.8" />
+      <stop offset="50%" stop-color="#3b82f6" stop-opacity="0.3" />
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0.9" />
+    </linearGradient>
+
+    <!-- Outer Glow -->
+    <filter id="neon-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <!-- Gradient for Text -->
+    <linearGradient id="text-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#c084fc" />
+      <stop offset="50%" stop-color="#f1f5f9" />
+      <stop offset="100%" stop-color="#60a5fa" />
+    </linearGradient>
+  </defs>
+
+  <!-- Embedded Logo Mark from logo.svg (Left) -->
+  <g transform="translate(8, 8) scale(0.375)">
+    <!-- Dark cyber background card -->
+    <rect x="6" y="6" width="116" height="116" rx="28" fill="#090d16" stroke="url(#metal-edge)" stroke-width="2.5" />
+
+    <!-- Cyber network lines in background -->
+    <path d="M 24 24 L 40 24 L 48 32 M 104 104 L 88 104 L 80 96 M 24 104 L 40 104 L 48 96 M 104 24 L 88 24 L 80 32" stroke="#1e293b" stroke-width="2" fill="none" stroke-linecap="round" />
+
+    <!-- Outer hexagon frame -->
+    <polygon points="64,18 102,40 102,84 64,106 26,84 26,40" fill="none" stroke="url(#cyber-grad)" stroke-width="4.5" stroke-linejoin="round" filter="url(#neon-glow)" />
+
+    <!-- Curvy smooth N in the center -->
+    <path d="M 46 78 C 46 54, 54 44, 59 44 C 67 44, 62 82, 70 82 C 78 82, 82 56, 82 46" fill="none" stroke="#ffffff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" filter="url(#neon-glow)" />
+
+    <!-- Connecting network node paths -->
+    <path d="M 64 18 L 64 40 M 64 84 L 64 106 M 26 40 L 46 52 M 102 84 L 82 72 M 102 40 L 82 52 M 26 84 L 46 72" stroke="url(#cyber-grad)" stroke-width="2" stroke-linecap="round" />
+  </g>
+
+  <!-- Combined Name Tag (Right) -->
+  <g transform="translate(68, 38)">
+    <text font-family="'Orbitron', 'Inter', sans-serif" font-size="19" font-weight="900" letter-spacing="2" fill="url(#text-grad)">
+      N<tspan font-family="sans-serif" font-weight="700" font-size="17" fill="#c084fc">i</tspan>VEXQL<tspan fill="#38bdf8" filter="url(#neon-glow)">.</tspan>
+    </text>
+  </g>
+</svg>

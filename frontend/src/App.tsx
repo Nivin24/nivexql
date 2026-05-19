@@ -16,7 +16,9 @@ export default function App() {
   const showConnModal = useAppStore(s => s.showConnModal);
   const setShowConnModal = useAppStore(s => s.setShowConnModal);
   const appTheme = useAppStore(s => s.appTheme);
-  const cells = useAppStore(s => s.cells);
+  const notebooks = useAppStore(s => s.notebooks);
+  const activeNotebookId = useAppStore(s => s.activeNotebookId);
+  const cells = notebooks.find(n => n.id === activeNotebookId)?.cells || [];
 
   // Apply theme to <html> element whenever it changes
   useEffect(() => {
@@ -67,14 +69,17 @@ export default function App() {
       if (mod && e.key === 'd') {
         e.preventDefault();
         const state = useAppStore.getState();
-        const active = state.cells.find(c => c.id === state.activeCellId);
+        const activeNb = state.notebooks.find(n => n.id === state.activeNotebookId);
+        if (!activeNb) return;
+        const active = activeNb.cells.find(c => c.id === activeNb.activeCellId);
         if (active) {
-          const newId = Math.random().toString(36).substring(2, 9);
           state.addCell();
           // Get the just-added cell and update it with cloned content
           setTimeout(() => {
             const updated = useAppStore.getState();
-            const last = updated.cells[updated.cells.length - 1];
+            const upNb = updated.notebooks.find(n => n.id === updated.activeNotebookId);
+            if (!upNb) return;
+            const last = upNb.cells[upNb.cells.length - 1];
             if (last) updated.updateCell(last.id, { name: active.name ? `${active.name} (copy)` : '', prompt: active.prompt, sql: active.sql });
           }, 0);
         }
@@ -84,7 +89,10 @@ export default function App() {
       // Cmd+/ → Focus active cell's prompt input
       if (mod && e.key === '/') {
         e.preventDefault();
-        const activeId = useAppStore.getState().activeCellId;
+        const state = useAppStore.getState();
+        const activeNb = state.notebooks.find(n => n.id === state.activeNotebookId);
+        if (!activeNb) return;
+        const activeId = activeNb.activeCellId;
         const promptInput = document.querySelector(`[data-cell-id="${activeId}"] input`) as HTMLInputElement;
         promptInput?.focus();
         return;

@@ -1,18 +1,31 @@
 import React, { useState } from 'react';
-import { Plus, Search, BookOpen, Download, ChevronDown } from 'lucide-react';
+import { Plus, Search, BookOpen, Download, ChevronDown, X, Edit2 } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import NotebookCellComponent from './NotebookCell';
 import LlmSettingsPanel from '../shared/LlmSettingsPanel';
 
 export default function Notebook({ onOpenSearch }: { onOpenSearch?: () => void }) {
-  const cells = useAppStore(s => s.cells);
+  const notebooks = useAppStore(s => s.notebooks);
+  const activeNotebookId = useAppStore(s => s.activeNotebookId);
+  const activeNotebook = notebooks.find(n => n.id === activeNotebookId) || notebooks[0];
+  const cells = activeNotebook.cells;
+
+  const addNotebook = useAppStore(s => s.addNotebook);
+  const removeNotebook = useAppStore(s => s.removeNotebook);
+  const setActiveNotebook = useAppStore(s => s.setActiveNotebook);
+  const renameNotebook = useAppStore(s => s.renameNotebook);
+
   const addCell = useAppStore(s => s.addCell);
   const moveCell = useAppStore(s => s.moveCell);
   const exportNotebook = useAppStore(s => s.exportNotebook);
 
+  const [editingTabId, setEditingTabId] = useState<string | null>(null);
+  const [editingTabName, setEditingTabName] = useState('');
+
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [dragPosition, setDragPosition] = useState<'before' | 'after' | null>(null);
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
 
   const handleDragStart = (e: React.DragEvent, id: string) => {
@@ -52,26 +65,75 @@ export default function Notebook({ onOpenSearch }: { onOpenSearch?: () => void }
     setDraggedId(null);
     setDragOverId(null);
     setDragPosition(null);
+    setActiveDragId(null);
   };
   
   const handleDragEnd = () => {
     setDraggedId(null);
     setDragOverId(null);
     setDragPosition(null);
+    setActiveDragId(null);
   };
 
   return (
     <div id="notebook-scroll" className="flex flex-col h-full overflow-y-auto scrollbar-thin bg-surface-base">
       {/* Notebook Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border glass sticky top-0 z-20">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-accent-dim rounded-lg shadow-glow">
-            <BookOpen className="w-5 h-5 text-accent" />
-          </div>
-          <div>
-            <h1 className="text-sm font-bold text-text-primary tracking-tight">Analytics Notebook</h1>
-            <p className="text-[10px] text-text-muted uppercase tracking-widest font-medium">Session Workspace</p>
-          </div>
+        <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide flex-1 mr-4">
+          {notebooks.map(nb => (
+            <div
+              key={nb.id}
+              onClick={() => setActiveNotebook(nb.id)}
+              className={`group flex items-center gap-2 px-4 py-2 rounded-t-lg border-b-2 transition-colors cursor-pointer min-w-[120px]
+                ${nb.id === activeNotebookId ? 'bg-surface-card border-accent text-accent font-medium shadow-sm' : 'border-transparent text-text-muted hover:bg-surface-muted/50'}`}
+            >
+              <BookOpen className={`w-3.5 h-3.5 ${nb.id === activeNotebookId ? 'text-accent' : 'text-text-muted'}`} />
+              
+              {editingTabId === nb.id ? (
+                <input
+                  autoFocus
+                  className="bg-transparent border-none outline-none text-sm w-24 text-text-primary"
+                  value={editingTabName}
+                  onChange={e => setEditingTabName(e.target.value)}
+                  onBlur={() => { renameNotebook(nb.id, editingTabName); setEditingTabId(null); }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { renameNotebook(nb.id, editingTabName); setEditingTabId(null); }
+                    if (e.key === 'Escape') setEditingTabId(null);
+                  }}
+                />
+              ) : (
+                <span 
+                  className="text-sm truncate flex-1"
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    setEditingTabId(nb.id);
+                    setEditingTabName(nb.name);
+                  }}
+                >
+                  {nb.name}
+                </span>
+              )}
+
+              <div className={`flex items-center opacity-0 group-hover:opacity-100 transition-opacity ${nb.id === activeNotebookId ? 'opacity-100' : ''}`}>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeNotebook(nb.id);
+                  }}
+                  className="p-1 hover:bg-surface-border rounded text-text-muted hover:text-danger transition-colors"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          ))}
+          <button 
+            onClick={addNotebook}
+            className="p-2 ml-1 text-text-muted hover:text-text-primary hover:bg-surface-muted rounded-lg transition-colors"
+            title="New Session"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
         </div>
         
         <div className="flex items-center gap-3">
@@ -114,6 +176,20 @@ export default function Notebook({ onOpenSearch }: { onOpenSearch?: () => void }
                     <span>As SQL Script</span>
                     <span className="text-[9px] font-mono text-text-muted">.sql</span>
                   </button>
+                  <button
+                    onClick={() => { exportNotebook('html'); setShowExportMenu(false); }}
+                    className="w-full text-left px-4 py-2 text-xs text-text-primary hover:bg-surface-muted transition-colors flex items-center justify-between"
+                  >
+                    <span>Interactive HTML Report</span>
+                    <span className="text-[9px] font-mono text-text-muted">.html</span>
+                  </button>
+                  <button
+                    onClick={() => { exportNotebook('ipynb'); setShowExportMenu(false); }}
+                    className="w-full text-left px-4 py-2 text-xs text-text-primary hover:bg-surface-muted transition-colors flex items-center justify-between"
+                  >
+                    <span>Jupyter Notebook</span>
+                    <span className="text-[9px] font-mono text-text-muted">.ipynb</span>
+                  </button>
                 </div>
               </>
             )}
@@ -137,7 +213,16 @@ export default function Notebook({ onOpenSearch }: { onOpenSearch?: () => void }
               key={cell.id}
               data-cell-id={cell.id}
               className="relative"
-              draggable
+              draggable={activeDragId === cell.id}
+              onMouseDown={(e) => {
+                const target = e.target as HTMLElement;
+                if (e.altKey || target.closest('[data-drag-handle]')) {
+                  setActiveDragId(cell.id);
+                } else {
+                  setActiveDragId(null);
+                }
+              }}
+              onMouseUp={() => setActiveDragId(null)}
               onDragStart={(e) => handleDragStart(e, cell.id)}
               onDragOver={(e) => handleDragOver(e, cell.id)}
               onDragLeave={(e) => handleDragLeave(e, cell.id)}

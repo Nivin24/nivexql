@@ -6,3 +6,6 @@ aiosqlite
 psycopg2-binary
 pymysql
 mcp
+sshtunnel
+httpx
+

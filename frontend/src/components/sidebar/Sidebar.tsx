@@ -1,12 +1,14 @@
 import React, { useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Database, Plus, Trash2, ChevronRight, ChevronDown, Star,
-  Table, Columns, Search, Loader2, CheckCircle2, ServerCrash, X, Settings, Layout, BookOpen, Type, Clock, XCircle, Palette, Sun, Moon, BookMarked
+  Table, Columns, Search, Loader2, CheckCircle2, ServerCrash, X, Settings, Layout, BookOpen, Type, Clock, XCircle, Palette, Sun, Moon, BookMarked, Copy, Shield
 } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import type { ConnectionConfig } from '../../store/useAppStore';
 import { apiConnectServer, apiSearchDatabases, apiSelectDatabase } from '../../lib/api';
 import { editorThemes } from '../../lib/editorThemes';
+import { format } from 'sql-formatter';
 
 interface SidebarProps {
   width: number;
@@ -47,14 +49,16 @@ export default function Sidebar({ width }: SidebarProps) {
   };
   
   const [tab, setTab] = useState<'schema' | 'history' | 'saved' | 'knowledge'>('schema');
-
   const [expandedTbls, setExpandedTbls] = useState<Record<string, boolean>>({});
+  const [previewQuery, setPreviewQuery] = useState<{ sql: string, name: string } | null>(null);
+  const [isCopied, setIsCopied] = useState(false);
 
   const handleSelectConn = async (id: string) => {
     const conn = connections.find(c => c.id === id);
     if (!conn) return;
     setActiveConnection(id);
     try {
+      await apiConnectServer(conn);
       const { tables } = await apiSelectDatabase(conn.database);
       setSchema(tables);
     } catch {}
@@ -73,8 +77,34 @@ export default function Sidebar({ width }: SidebarProps) {
 
   const insertTable = (name: string) => {
     if (activeCellId) {
-      updateCell(activeCellId, { prompt: (useAppStore.getState().cells.find(c => c.id === activeCellId)?.prompt || '') + ` ${name} ` });
+      const state = useAppStore.getState();
+      const activeNb = state.notebooks.find(n => n.id === state.activeNotebookId);
+      if (!activeNb) return;
+      const currentPrompt = activeNb.cells.find(c => c.id === activeCellId)?.prompt || '';
+      updateCell(activeCellId, { prompt: currentPrompt + ` ${name} ` });
     }
+  };
+
+  const handleInsertPreview = () => {
+    if (!previewQuery) return;
+    const state = useAppStore.getState();
+    state.addCell();
+    // After adding, the cell is the last one in the active notebook
+    setTimeout(() => {
+      const updatedState = useAppStore.getState();
+      const activeNb = updatedState.notebooks.find(n => n.id === updatedState.activeNotebookId);
+      if (!activeNb) return;
+      const newCellId = activeNb.cells[activeNb.cells.length - 1].id;
+      updatedState.updateCell(newCellId, { sql: previewQuery.sql, prompt: previewQuery.name });
+      setPreviewQuery(null);
+    }, 0);
+  };
+
+  const handleCopy = () => {
+    if (!previewQuery) return;
+    navigator.clipboard.writeText(previewQuery.sql);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
   };
 
   return (
@@ -84,16 +114,11 @@ export default function Sidebar({ width }: SidebarProps) {
     >
       {/* App Header */}
       <div className="p-6 border-b border-surface-border flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-accent to-accent-hover flex items-center justify-center shadow-glow">
-            <Database className="w-4 h-4 text-white" />
-          </div>
-          <div>
-            <h1 className="text-sm font-bold text-text-primary tracking-tight">NivexQL</h1>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-              <span className="text-[10px] text-text-muted font-bold uppercase tracking-widest">Workbench</span>
-            </div>
+        <div className="flex flex-col gap-2">
+          <img src="/logo_combined.svg" className="h-13 w-auto self-start" alt="NivexQL Logo" />
+          <div className="flex items-center gap-1.5 ml-1 mt-0.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+            <span className="text-[10px] text-text-muted font-bold uppercase tracking-widest">Workbench</span>
           </div>
         </div>
       </div>
@@ -134,7 +159,15 @@ export default function Sidebar({ width }: SidebarProps) {
                 <Database className={`w-3.5 h-3.5 ${activeConnectionId === conn.id ? 'text-accent' : 'text-text-muted'}`} />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-[11px] font-bold text-text-primary truncate">{conn.label}</div>
+                <div className="flex items-center gap-1.5 text-[11px] font-bold text-text-primary">
+                  <span className="truncate">{conn.label}</span>
+                  {conn.use_ssh && (
+                    <span className="flex items-center gap-0.5 bg-warning/10 text-warning border border-warning/20 rounded px-1 py-0.5 text-[8px] font-bold uppercase tracking-widest shrink-0">
+                      <Shield className="w-2.5 h-2.5" />
+                      SSH
+                    </span>
+                  )}
+                </div>
                 <div className="text-[9px] text-text-muted uppercase tracking-tighter">{conn.dialect} • {conn.database}</div>
               </div>
               <button 
@@ -257,11 +290,8 @@ export default function Sidebar({ width }: SidebarProps) {
                 <div
                   key={h.id}
                   className="group flex flex-col gap-1 p-2.5 rounded-xl border border-surface-border/50 bg-surface-card/30 hover:border-accent/20 hover:bg-surface-card/60 cursor-pointer transition-all"
-                  onClick={() => {
-                    const cellId = useAppStore.getState().activeCellId;
-                    if (cellId) useAppStore.getState().updateCell(cellId, { sql: h.sql });
-                  }}
-                  title="Click to load this query into active cell"
+                  onClick={() => setPreviewQuery({ sql: h.sql, name: h.cellName || 'History Query' })}
+                  title="Click to preview query"
                 >
                   <div className="flex items-center gap-2">
                     {h.success
@@ -308,11 +338,8 @@ export default function Sidebar({ width }: SidebarProps) {
                 <div
                   key={i}
                   className="group flex flex-col gap-1 p-2.5 rounded-xl border border-surface-border/50 bg-surface-card/30 hover:border-accent/20 hover:bg-surface-card/60 cursor-pointer transition-all"
-                  onClick={() => {
-                    const cellId = useAppStore.getState().activeCellId;
-                    if (cellId) useAppStore.getState().updateCell(cellId, { sql });
-                  }}
-                  title="Click to load into active cell"
+                  onClick={() => setPreviewQuery({ sql, name: 'Saved Query' })}
+                  title="Click to preview query"
                 >
                   <div className="flex items-center gap-2">
                     <Star className="w-3 h-3 text-warning fill-warning shrink-0" />
@@ -393,6 +420,63 @@ export default function Sidebar({ width }: SidebarProps) {
           </div>
         </div>
       </div>
+
+      {/* Query Preview Modal */}
+      {previewQuery && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-surface-base/80 backdrop-blur-sm animate-in fade-in" onClick={() => setPreviewQuery(null)}>
+          <div 
+            className="w-full max-w-2xl bg-surface-card border border-surface-border shadow-2xl rounded-2xl flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200 overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-surface-border flex items-center justify-between glass sticky top-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-accent/10 rounded-xl">
+                  <Search className="w-5 h-5 text-accent" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-text-primary tracking-tight">{previewQuery.name}</h3>
+                  <p className="text-[11px] text-text-muted font-medium mt-0.5">Query Preview</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCopy}
+                  className={`btn-ghost flex items-center gap-1.5 transition-colors ${isCopied ? 'text-success' : ''}`}
+                >
+                  {isCopied ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  <span className="text-[11px] font-medium">{isCopied ? 'Copied!' : 'Copy'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 overflow-y-auto scrollbar-thin">
+              <pre className="text-xs text-text-secondary font-mono bg-surface-base/50 p-4 rounded-xl border border-surface-border/50 whitespace-pre-wrap overflow-x-auto shadow-inner">
+                {format(previewQuery.sql, { language: 'postgresql' })}
+              </pre>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-surface-border bg-surface-muted/30 flex items-center justify-end gap-3 glass">
+              <button
+                onClick={() => setPreviewQuery(null)}
+                className="btn-ghost"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleInsertPreview}
+                className="btn-primary"
+              >
+                <Plus className="w-4 h-4" />
+                Insert into New Cell
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </aside>
   );
 }

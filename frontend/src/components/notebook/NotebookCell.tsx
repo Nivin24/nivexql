@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Trash2, Play, Sparkles, ChevronDown, ChevronUp, 
   BarChart2, Table as TableIcon, Download, MessageSquare, 
-  Loader2, Zap, AlignLeft, Pencil, Check, Palette, GripVertical, Pin, PinOff
+  Loader2, Zap, AlignLeft, Pencil, Check, Palette, GripVertical, Pin, PinOff, LayoutGrid, Info, Send
 } from 'lucide-react';
 import Editor, { loader } from '@monaco-editor/react';
 import { format } from 'sql-formatter';
@@ -11,6 +11,48 @@ import { apiQuery, apiGenerateSql, apiFixSql, apiAnalyzeResults, apiGenerateFoll
 import { editorThemes } from '../../lib/editorThemes';
 import { toast } from '../shared/Toast';
 import D3Chart from '../viz/D3Chart';
+import PivotTable from '../viz/PivotTable';
+
+interface DiffLine {
+  type: 'added' | 'removed' | 'unchanged';
+  value: string;
+}
+
+function diffLines(oldStr: string, newStr: string): DiffLine[] {
+  const oldLines = (oldStr || '').split('\n');
+  const newLines = (newStr || '').split('\n');
+  const dp: number[][] = Array(oldLines.length + 1).fill(null).map(() => Array(newLines.length + 1).fill(0));
+  
+  for (let i = 1; i <= oldLines.length; i++) {
+    for (let j = 1; j <= newLines.length; j++) {
+      if (oldLines[i - 1].trim() === newLines[j - 1].trim()) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+  
+  let i = oldLines.length;
+  let j = newLines.length;
+  const diff: DiffLine[] = [];
+  
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && oldLines[i - 1].trim() === newLines[j - 1].trim()) {
+      diff.unshift({ type: 'unchanged', value: newLines[j - 1] });
+      i--;
+      j--;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      diff.unshift({ type: 'added', value: newLines[j - 1] });
+      j--;
+    } else {
+      diff.unshift({ type: 'removed', value: oldLines[i - 1] });
+      i--;
+    }
+  }
+  return diff;
+}
+
 
 interface Props {
   cell: NotebookCell;
@@ -46,6 +88,113 @@ export default function NotebookCellComponent({ cell, index }: Props) {
   const [colFilter, setColFilter] = useState('');
   // Follow-up suggestions
   const [followUps, setFollowUps] = useState<string[]>([]);
+
+  // Premium Tab States
+  const [leftTab, setLeftTab] = useState<'sql' | 'chat' | 'diff'>('sql');
+  const [chatInput, setChatInput] = useState('');
+  const [hoveredProfileCol, setHoveredProfileCol] = useState<{ col: string; x: number; y: number } | null>(null);
+
+  const getColProfile = (colName: string) => {
+    if (!cell.queryResult) return null;
+    const vals = cell.queryResult.rows.map(r => r[colName]);
+    const total = vals.length;
+    const nulls = vals.filter(v => v === null || v === undefined || v === '').length;
+    
+    const distinctSet = new Set(vals.filter(v => v !== null && v !== undefined && v !== ''));
+    const distinctCount = distinctSet.size;
+
+    const numericVals = vals.map(v => Number(v)).filter(n => !isNaN(n) && typeof n === 'number' && n !== null);
+    const isNumeric = numericVals.length > 0 && numericVals.length >= total * 0.7;
+
+    let min: any = null, max: any = null, avg = 0, sum = 0;
+    if (isNumeric && numericVals.length > 0) {
+      min = Math.min(...numericVals);
+      max = Math.max(...numericVals);
+      sum = numericVals.reduce((a, b) => a + b, 0);
+      avg = sum / numericVals.length;
+    } else if (vals.length > 0) {
+      const nonNullVals = vals.filter(v => v !== null && v !== undefined && v !== '').map(String);
+      if (nonNullVals.length > 0) {
+        nonNullVals.sort();
+        min = nonNullVals[0];
+        max = nonNullVals[nonNullVals.length - 1];
+      }
+    }
+
+    const freq: Record<string, number> = {};
+    vals.forEach(v => {
+      const key = v === null || v === undefined || v === '' ? '(null)' : String(v);
+      freq[key] = (freq[key] || 0) + 1;
+    });
+    const sortedFreq = Object.entries(freq)
+      .map(([value, count]) => ({ value, count, pct: Math.round((count / total) * 100) }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 3);
+
+    return {
+      nullPct: Math.round((nulls / total) * 100),
+      distinctCount,
+      min,
+      max,
+      avg: isNumeric ? Math.round(avg * 100) / 100 : null,
+      sum: isNumeric ? Math.round(sum * 100) / 100 : null,
+      isNumeric,
+      topValues: sortedFreq
+    };
+  };
+
+  const handleSendChatMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+
+    const userMessage = { role: 'user' as const, content: chatInput };
+    const currentHistory = cell.chatHistory || [];
+    const updatedHistory = [...currentHistory, userMessage];
+
+    updateCell(cell.id, { 
+      chatHistory: updatedHistory,
+      agentStatus: 'generating'
+    });
+    const refinementPrompt = chatInput;
+    setChatInput('');
+    appendAgentLog(cell.id, `🤖 Chat refining query...`);
+
+    try {
+      const { sql: generated, suggested_name } = await apiGenerateSql(
+        refinementPrompt, 
+        schema, 
+        globalContext, 
+        updatedHistory
+      );
+
+      let formattedSql = generated;
+      try {
+        formattedSql = format(generated, { language: 'postgresql', keywordCase: 'upper' });
+      } catch { /* fallback */ }
+
+      const assistantMessage = { 
+        role: 'assistant' as const, 
+        content: `I've updated the query to reflect your request.`,
+        sql: formattedSql 
+      };
+
+      updateCell(cell.id, {
+        sql: formattedSql,
+        chatHistory: [...updatedHistory, assistantMessage],
+        name: suggested_name || cell.name,
+        agentStatus: 'done'
+      });
+
+      appendAgentLog(cell.id, `✅ SQL query refined successfully.`);
+      await runQuery(generated);
+      setLeftTab('sql');
+    } catch (err: unknown) {
+      const e = err as Error;
+      appendAgentLog(cell.id, `❌ Chat refinement failed: ${e.message}`);
+      updateCell(cell.id, { agentStatus: 'error' });
+      toast.error('Refinement failed', e.message);
+    }
+  };
 
   const setSql = (sql: string) => updateCell(cell.id, { sql });
   const setPrompt = (prompt: string) => updateCell(cell.id, { prompt });
@@ -195,6 +344,13 @@ export default function NotebookCellComponent({ cell, index }: Props) {
         if (retryCount < 1) {
           const e = err as Error;
           appendAgentLog(cell.id, `⚠️ Error: ${e.message}. Retrying...`);
+          
+          let cleanPrevSql = generated;
+          try {
+            cleanPrevSql = format(generated, { language: 'postgresql', keywordCase: 'upper' });
+          } catch {}
+          
+          updateCell(cell.id, { previousSql: cleanPrevSql });
           const { sql: fixed } = await apiFixSql(cell.prompt, generated, e.message, schema, globalContext);
           setSql(fixed);
           await runQuery(fixed);
@@ -211,7 +367,10 @@ export default function NotebookCellComponent({ cell, index }: Props) {
   const handleDrillDown = (col: string, val: any) => {
     const addCell = useAppStore.getState().addCell;
     addCell();
-    const currentCells = useAppStore.getState().cells;
+    const state = useAppStore.getState();
+    const activeNb = state.notebooks.find(n => n.id === state.activeNotebookId);
+    if (!activeNb) return;
+    const currentCells = activeNb.cells;
     const newCellId = currentCells[currentCells.length - 1].id;
     const drillPrompt = `Show me details where ${col} is "${val}" based on: ${cell.prompt}`;
     useAppStore.getState().updateCell(newCellId, { prompt: drillPrompt });
@@ -351,7 +510,7 @@ export default function NotebookCellComponent({ cell, index }: Props) {
       <div className="group glass rounded-2xl overflow-hidden border border-surface-border hover:border-accent/30 transition-all duration-300 shadow-card">
       <div className={`flex items-center gap-3 px-4 py-3 bg-surface-card border-b border-surface-border ${cell.isPinned ? 'bg-accent/5' : ''}`}>
         <div className="flex items-center gap-1">
-          <div className="cursor-grab active:cursor-grabbing p-1 text-text-muted hover:text-text-primary transition-colors">
+          <div data-drag-handle className="cursor-grab active:cursor-grabbing p-1 text-text-muted hover:text-text-primary transition-colors">
             <GripVertical className="w-4 h-4" />
           </div>
           <span className="flex items-center justify-center w-6 h-6 rounded-md bg-surface-muted text-[10px] font-bold text-text-muted">
@@ -389,52 +548,225 @@ export default function NotebookCellComponent({ cell, index }: Props) {
         <div className="flex flex-col flex-1 h-[75vh]">
           {/* Resizable split grid */}
           <div ref={splitRef} className="flex flex-1 min-h-0 relative" style={{ userSelect: dragActive ? 'none' : 'auto' }}>
-            {/* Left: SQL Editor */}
+            {/* Left: SQL Editor / Chat / Diff */}
             <div className="flex flex-col border-r border-surface-border bg-[#0a0e1a]/50 overflow-hidden min-h-0" style={{ width: `${splitPct}%` }}>
-              <div className="flex items-center justify-between px-4 py-2 border-b border-surface-border/50 text-[10px] uppercase tracking-widest text-text-muted font-bold">
-                <span>SQL Query</span>
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1.5 mr-2 pr-2 border-r border-surface-border/50">
-                    <Palette className="w-3 h-3 text-text-muted" />
-                    <select 
-                      value={editorTheme}
-                      onChange={(e) => setEditorTheme(e.target.value)}
-                      className="bg-transparent border-none text-[10px] font-bold text-text-muted focus:outline-none cursor-pointer hover:text-text-primary transition-colors uppercase tracking-tight"
+              <div className="flex items-center justify-between px-4 py-2 border-b border-surface-border/50 text-[10px] uppercase font-bold">
+                <div className="flex items-center gap-3">
+                  <button 
+                    onClick={() => setLeftTab('sql')} 
+                    className={`pb-1 border-b-2 transition-all ${leftTab === 'sql' ? 'border-accent text-accent font-bold' : 'border-transparent text-text-muted hover:text-text-primary'}`}
+                  >
+                    SQL Query
+                  </button>
+                  <button 
+                    onClick={() => setLeftTab('chat')} 
+                    className={`pb-1 border-b-2 transition-all flex items-center gap-1 ${leftTab === 'chat' ? 'border-accent text-accent font-bold' : 'border-transparent text-text-muted hover:text-text-primary'}`}
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" /> AI Chat
+                  </button>
+                  {cell.previousSql && cell.previousSql !== cell.sql && (
+                    <button 
+                      onClick={() => setLeftTab('diff')} 
+                      className={`pb-1 border-b-2 transition-all flex items-center gap-1 text-warning ${leftTab === 'diff' ? 'border-warning font-bold' : 'border-transparent opacity-75 hover:opacity-100'}`}
                     >
-                      {editorThemes.map(t => (
-                        <option key={t.id} value={t.id} className="bg-surface-card text-text-primary">{t.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <button onClick={handleFormat} className="hover:text-text-primary transition-colors flex items-center gap-1" title="Format SQL Code">
-                    <AlignLeft className="w-3 h-3" /> Format
-                  </button>
-                  <button onClick={explainQuery} className="hover:text-text-primary transition-colors flex items-center gap-1" title="Analyze Performance">
-                    <Zap className="w-3 h-3" /> Profile
-                  </button>
-                  <button onClick={() => runQuery()} className="text-accent hover:text-accent-hover transition-colors flex items-center gap-1" title="Run Query">
-                    <Play className="w-3 h-3" /> Run
-                  </button>
+                      <Zap className="w-3.5 h-3.5" /> AI Auto-Fix Diff
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {leftTab === 'sql' && (
+                    <>
+                      <div className="flex items-center gap-1.5 mr-2 pr-2 border-r border-surface-border/50">
+                        <Palette className="w-3 h-3 text-text-muted" />
+                        <select 
+                          value={editorTheme}
+                          onChange={(e) => setEditorTheme(e.target.value)}
+                          className="bg-transparent border-none text-[10px] font-bold text-text-muted focus:outline-none cursor-pointer hover:text-text-primary transition-colors uppercase tracking-tight"
+                        >
+                          {editorThemes.map(t => (
+                            <option key={t.id} value={t.id} className="bg-surface-card text-text-primary">{t.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <button onClick={handleFormat} className="hover:text-text-primary transition-colors flex items-center gap-1" title="Format SQL Code">
+                        <AlignLeft className="w-3 h-3" /> Format
+                      </button>
+                      <button onClick={explainQuery} className="hover:text-text-primary transition-colors flex items-center gap-1" title="Analyze Performance">
+                        <Zap className="w-3 h-3" /> Profile
+                      </button>
+                      <button onClick={() => runQuery()} className="text-accent hover:text-accent-hover transition-colors flex items-center gap-1" title="Run Query">
+                        <Play className="w-3 h-3" /> Run
+                      </button>
+                    </>
+                  )}
+
+                  {leftTab === 'chat' && (
+                    <button 
+                      onClick={() => updateCell(cell.id, { chatHistory: [] })} 
+                      className="text-text-muted hover:text-text-primary transition-colors"
+                      title="Clear Chat History"
+                    >
+                      Clear Chat
+                    </button>
+                  )}
+
+                  {leftTab === 'diff' && (
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => {
+                          updateCell(cell.id, { previousSql: undefined });
+                          setLeftTab('sql');
+                          toast.success('AI Diff accepted');
+                        }}
+                        className="text-accent hover:text-accent-hover font-bold transition-colors"
+                      >
+                        Keep Fixed
+                      </button>
+                      <span className="text-text-muted">|</span>
+                      <button 
+                        onClick={() => {
+                          if (cell.previousSql) {
+                            updateCell(cell.id, { sql: cell.previousSql, previousSql: undefined });
+                            setLeftTab('sql');
+                            toast.info('Reverted to original SQL');
+                          }
+                        }}
+                        className="text-danger hover:text-danger-hover font-bold transition-colors"
+                      >
+                        Revert
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
-              <div className="flex-1 overflow-hidden min-h-0">
-                <Editor 
-                  height="100%"
-                  defaultLanguage="sql"
-                  theme={editorTheme}
-                  beforeMount={handleEditorWillMount}
-                  value={cell.sql}
-                  onChange={v => setSql(v || '')}
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: uiTextSize === 'xs' ? 10 : uiTextSize === 'sm' ? 12 : uiTextSize === 'base' ? 14 : 16,
-                    padding: { top: 12 },
-                    scrollBeyondLastLine: false
-                  }}
-                />
-              </div>
-              <div className="px-4 py-2 bg-surface-base border-t border-surface-border text-[10px] text-text-muted font-mono truncate">
-                {cell.agentLog.length > 0 ? cell.agentLog[cell.agentLog.length - 1] : 'Idle'}
+
+              {leftTab === 'sql' && (
+                <div className="flex-1 overflow-hidden min-h-0">
+                  <Editor 
+                    height="100%"
+                    defaultLanguage="sql"
+                    theme={editorTheme}
+                    beforeMount={handleEditorWillMount}
+                    value={cell.sql}
+                    onChange={v => setSql(v || '')}
+                    options={{
+                      minimap: { enabled: false },
+                      fontSize: uiTextSize === 'xs' ? 10 : uiTextSize === 'sm' ? 12 : uiTextSize === 'base' ? 14 : 16,
+                      padding: { top: 12 },
+                      scrollBeyondLastLine: false
+                    }}
+                  />
+                </div>
+              )}
+
+              {leftTab === 'chat' && (
+                <div className="flex-1 flex flex-col min-h-0 bg-[#070b14]/30 p-4">
+                  {/* Chat Message Thread */}
+                  <div className="flex-1 overflow-y-auto mb-4 space-y-3 pr-1 scrollbar-thin">
+                    <div className="flex flex-col gap-1.5 p-3 rounded-2xl bg-[#0b1021] border border-surface-border text-xs max-w-[85%] mr-auto shadow-sm">
+                      <p className="text-text-secondary">
+                        💬 <strong>AI Conversational Refinement</strong>
+                      </p>
+                      <p className="text-text-muted">
+                        I can help you build and refine the SQL for this cell iteratively. Ask me to:
+                      </p>
+                      <ul className="list-disc list-inside text-text-muted space-y-1 mt-1">
+                        <li>Filter: <em>"only show rows where status is active"</em></li>
+                        <li>Group: <em>"group by date and count items"</em></li>
+                        <li>Sort: <em>"sort by total revenue desc and limit to 10"</em></li>
+                      </ul>
+                    </div>
+
+                    {(cell.chatHistory || []).map((msg, i) => (
+                      <div 
+                        key={i} 
+                        className={`flex flex-col gap-1.5 p-3 rounded-2xl text-xs max-w-[85%] shadow-md ${
+                          msg.role === 'user' 
+                            ? 'bg-accent/15 border border-accent/30 ml-auto text-text-primary' 
+                            : 'bg-[#0d1325] border border-surface-border mr-auto text-text-secondary'
+                        }`}
+                      >
+                        <span className="text-[9px] uppercase tracking-wider font-bold text-text-muted">
+                          {msg.role === 'user' ? 'You' : 'NivexAI'}
+                        </span>
+                        <p className="whitespace-pre-wrap">{msg.content}</p>
+                        {msg.sql && (
+                          <div className="mt-1.5 p-2 bg-black/40 rounded-lg border border-surface-border/30 max-h-[140px] overflow-y-auto font-mono text-[10px] text-accent select-text">
+                            {msg.sql}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Input form */}
+                  <form onSubmit={handleSendChatMessage} className="flex gap-2 bg-surface-card border border-surface-border rounded-xl p-1.5 focus-within:border-accent/40 transition-colors">
+                    <input 
+                      type="text" 
+                      value={chatInput} 
+                      onChange={e => setChatInput(e.target.value)} 
+                      placeholder="Ask AI to refine this cell's query..." 
+                      className="flex-1 bg-transparent text-xs text-text-primary placeholder:text-text-muted focus:outline-none px-2"
+                      disabled={cell.agentStatus === 'generating'}
+                    />
+                    <button 
+                      type="submit" 
+                      disabled={cell.agentStatus === 'generating' || !chatInput.trim()} 
+                      className="p-2 bg-accent text-white rounded-lg hover:bg-accent-hover disabled:opacity-50 transition-colors flex items-center justify-center"
+                    >
+                      {cell.agentStatus === 'generating' ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Send className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              {leftTab === 'diff' && cell.previousSql && (
+                <div className="flex-1 overflow-auto bg-[#050811] p-4 font-mono text-xs select-text leading-relaxed">
+                  <div className="mb-3 text-[10px] text-text-muted uppercase tracking-wider font-bold">
+                    Line-by-line diff of AI SQL auto-correction:
+                  </div>
+                  <div className="space-y-0.5">
+                    {diffLines(cell.previousSql, cell.sql).map((line, idx) => {
+                      let bgColor = 'transparent';
+                      let textColor = 'text-text-secondary';
+                      let prefix = ' ';
+                      if (line.type === 'added') {
+                        bgColor = 'rgba(16, 185, 129, 0.12)';
+                        textColor = 'text-[#10b981] font-semibold';
+                        prefix = '+';
+                      } else if (line.type === 'removed') {
+                        bgColor = 'rgba(239, 68, 68, 0.12)';
+                        textColor = 'text-[#ef4444] line-through';
+                        prefix = '-';
+                      }
+                      return (
+                        <div 
+                          key={idx} 
+                          className="flex items-start px-2 py-0.5 rounded-sm"
+                          style={{ backgroundColor: bgColor }}
+                        >
+                          <span className="w-6 select-none opacity-40 text-right pr-2 text-[10px]">{idx + 1}</span>
+                          <span className="w-4 select-none opacity-50 font-bold">{prefix}</span>
+                          <span className={`flex-1 whitespace-pre-wrap ${textColor}`}>{line.value}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="px-4 py-2 bg-surface-base border-t border-surface-border text-[10px] text-text-muted font-mono truncate flex items-center justify-between">
+                <span>{cell.agentLog.length > 0 ? cell.agentLog[cell.agentLog.length - 1] : 'Idle'}</span>
+                {cell.previousSql && cell.previousSql !== cell.sql && (
+                  <button onClick={() => setLeftTab('diff')} className="text-warning hover:underline font-bold text-[9px]">
+                    ⚠️ SQL Auto-Fixed. View Diff
+                  </button>
+                )}
               </div>
             </div>
 
@@ -450,18 +782,25 @@ export default function NotebookCellComponent({ cell, index }: Props) {
               <div className="flex items-center justify-between px-4 py-2 border-b border-surface-border/50">
                 <div className="flex items-center gap-2">
                   <button 
-                    onClick={() => updateCell(cell.id, { showViz: false })}
-                    className={`p-1.5 rounded-md transition-all ${!cell.showViz ? 'bg-accent/20 text-accent' : 'text-text-muted'}`}
+                    onClick={() => updateCell(cell.id, { viewMode: 'table' })}
+                    className={`p-1.5 rounded-md transition-all ${(!cell.viewMode && !cell.showViz) || cell.viewMode === 'table' ? 'bg-accent/20 text-accent' : 'text-text-muted'}`}
                     title="View Data Table"
                   >
                     <TableIcon className="w-4 h-4" />
                   </button>
                   <button 
-                    onClick={() => updateCell(cell.id, { showViz: true })}
-                    className={`p-1.5 rounded-md transition-all ${cell.showViz ? 'bg-accent/20 text-accent' : 'text-text-muted'}`}
+                    onClick={() => updateCell(cell.id, { viewMode: 'chart' })}
+                    className={`p-1.5 rounded-md transition-all ${(!cell.viewMode && cell.showViz) || cell.viewMode === 'chart' ? 'bg-accent/20 text-accent' : 'text-text-muted'}`}
                     title="View Chart"
                   >
                     <BarChart2 className="w-4 h-4" />
+                  </button>
+                  <button 
+                    onClick={() => updateCell(cell.id, { viewMode: 'pivot' })}
+                    className={`p-1.5 rounded-md transition-all ${cell.viewMode === 'pivot' ? 'bg-accent/20 text-accent' : 'text-text-muted'}`}
+                    title="View Pivot Table"
+                  >
+                    <LayoutGrid className="w-4 h-4" />
                   </button>
 
                   <div className="h-4 w-px bg-surface-border mx-1" />
@@ -473,7 +812,7 @@ export default function NotebookCellComponent({ cell, index }: Props) {
                     <Download className="w-4 h-4" />
                   </button>
 
-                  {cell.showViz && (
+                  {((!cell.viewMode && cell.showViz) || cell.viewMode === 'chart') && (
                     <select 
                       className="bg-transparent text-[10px] text-text-muted uppercase font-bold focus:outline-none ml-2"
                       value={cell.vizType}
@@ -501,12 +840,17 @@ export default function NotebookCellComponent({ cell, index }: Props) {
                     <Zap className="w-12 h-12" />
                     <span className="text-xs">No data to display</span>
                   </div>
-                ) : cell.showViz ? (
+                ) : ((!cell.viewMode && cell.showViz) || cell.viewMode === 'chart') ? (
                   <D3Chart 
                     data={cell.queryResult.rows} 
                     columns={cell.queryResult.columns} 
                     chartType={cell.vizType}
                     onDrillDown={handleDrillDown}
+                  />
+                ) : cell.viewMode === 'pivot' ? (
+                  <PivotTable
+                    data={cell.queryResult.rows}
+                    columns={cell.queryResult.columns}
                   />
                 ) : (() => {
                   // Apply filter and sort
@@ -546,11 +890,28 @@ export default function NotebookCellComponent({ cell, index }: Props) {
                                   onClick={() => handleSort(c)}
                                   className={`px-3 py-2 text-left text-text-muted font-bold tracking-wider cursor-pointer hover:text-text-primary select-none group transition-colors ${uiTextSize === 'xs' || uiTextSize === 'sm' ? 'uppercase' : ''}`}
                                 >
-                                  <div className="flex items-center gap-1">
-                                    <span>{c}</span>
-                                    <span className={`transition-opacity text-accent ${sortCol === c ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`}>
-                                      {sortCol === c && sortDir === 'asc' ? '↑' : '↓'}
-                                    </span>
+                                  <div className="flex items-center gap-1.5 justify-between">
+                                    <div className="flex items-center gap-1">
+                                      <span>{c}</span>
+                                      <span className={`transition-opacity text-accent ${sortCol === c ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`}>
+                                        {sortCol === c && sortDir === 'asc' ? '↑' : '↓'}
+                                      </span>
+                                    </div>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const rect = e.currentTarget.getBoundingClientRect();
+                                        setHoveredProfileCol(
+                                          hoveredProfileCol?.col === c 
+                                            ? null 
+                                            : { col: c, x: rect.left, y: rect.bottom + window.scrollY }
+                                        );
+                                      }}
+                                      className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-text-muted hover:text-accent rounded"
+                                      title="Show Column Profile"
+                                    >
+                                      <Info className="w-3.5 h-3.5" />
+                                    </button>
                                   </div>
                                 </th>
                               ))}
@@ -574,6 +935,85 @@ export default function NotebookCellComponent({ cell, index }: Props) {
                           </tbody>
                         </table>
                       </div>
+
+                      {hoveredProfileCol && (() => {
+                        const profile = getColProfile(hoveredProfileCol.col);
+                        if (!profile) return null;
+                        return (
+                          <>
+                            <div 
+                              className="fixed inset-0 z-40 bg-black/10" 
+                              onClick={() => setHoveredProfileCol(null)} 
+                            />
+                            <div 
+                              className="fixed bg-[#0c1020]/95 border border-surface-border text-xs rounded-xl p-3.5 shadow-2xl z-50 min-w-[220px] backdrop-blur-md animate-in fade-in zoom-in-95"
+                              style={{ 
+                                left: `${Math.min(hoveredProfileCol.x - 20, window.innerWidth - 250)}px`, 
+                                top: `${Math.min(hoveredProfileCol.y, window.innerHeight - 320)}px` 
+                              }}
+                            >
+                              <div className="flex items-center justify-between border-b border-surface-border pb-2 mb-2 font-bold text-accent">
+                                <span className="truncate max-w-[150px]">Col: {hoveredProfileCol.col}</span>
+                                <button onClick={() => setHoveredProfileCol(null)} className="text-text-muted hover:text-text-primary font-normal">✕</button>
+                              </div>
+                              <div className="space-y-1.5 text-text-secondary">
+                                <div className="flex justify-between">
+                                  <span>Null / Blank:</span> 
+                                  <span className={`font-semibold ${profile.nullPct > 0 ? 'text-warning' : 'text-[#10b981]'}`}>
+                                    {profile.nullPct}%
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span>Distinct Values:</span> 
+                                  <span className="font-semibold text-text-primary">
+                                    {profile.distinctCount}
+                                  </span>
+                                </div>
+                                {profile.isNumeric ? (
+                                  <>
+                                    <div className="flex justify-between">
+                                      <span>Average:</span> 
+                                      <span className="font-semibold text-text-primary">{profile.avg}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span>Range:</span> 
+                                      <span className="font-semibold text-text-primary">{profile.min} .. {profile.max}</span>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <div className="flex justify-between">
+                                    <span>Range (Alph.):</span> 
+                                    <span className="font-semibold text-text-primary max-w-[120px] truncate" title={`${profile.min} to ${profile.max}`}>
+                                      {profile.min} .. {profile.max}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                              
+                              <div className="border-t border-surface-border mt-3 pt-3">
+                                <span className="text-[10px] text-text-muted font-bold block mb-2 uppercase tracking-wide">
+                                  Value Distribution
+                                </span>
+                                <div className="space-y-2">
+                                  {profile.topValues.length === 0 ? (
+                                    <span className="text-text-muted italic text-[11px]">No data</span>
+                                  ) : profile.topValues.map((v, idx) => (
+                                    <div key={idx} className="flex flex-col gap-0.5">
+                                      <div className="flex justify-between text-[11px]">
+                                        <span className="truncate max-w-[140px] text-text-secondary" title={v.value}>{v.value}</span>
+                                        <span className="font-bold text-text-primary">{v.pct}%</span>
+                                      </div>
+                                      <div className="w-full bg-surface-base h-1 rounded-full overflow-hidden">
+                                        <div className="bg-accent h-full transition-all duration-500" style={{ width: `${v.pct}%` }} />
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </>
+                        );
+                      })()}
                     </>
                   );
                 })()}

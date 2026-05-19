@@ -1,7 +1,18 @@
 const BASE = 'http://localhost:8081';
 
 export async function apiConnectServer(cfg: {
-  host?: string; port?: number; user?: string; password?: string; dialect: string; sqlite_path?: string;
+  host?: string;
+  port?: number;
+  user?: string;
+  password?: string;
+  dialect: string;
+  sqlite_path?: string;
+  use_ssh?: boolean;
+  ssh_host?: string;
+  ssh_port?: number;
+  ssh_user?: string;
+  ssh_password?: string;
+  ssh_key_path?: string;
 }): Promise<{ databases: string[] }> {
   const res = await fetch(`${BASE}/api/connect`, {
     method: 'POST',
@@ -49,14 +60,14 @@ export async function apiQuery(query: string) {
   return res.json() as Promise<{ columns: string[]; rows: Record<string, unknown>[]; execution_ms: number }>;
 }
 
-export async function apiGenerateSql(prompt: string, schema: unknown, context: string = "") {
+export async function apiGenerateSql(prompt: string, schema: unknown, context: string = "", chatHistory?: any[]) {
   const res = await fetch(`${BASE}/api/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, db_schema: schema, context }),
+    body: JSON.stringify({ prompt, db_schema: schema, context, chat_history: chatHistory }),
   });
   if (!res.ok) throw new Error(await res.text());
-  return res.json() as Promise<{ sql: string; suggested_name?: string }>;
+  return res.json() as Promise<{ sql: string; suggested_name?: string; suggested_viz?: string }>;
 }
 
 export async function apiFixSql(prompt: string, sql: string, error: string, schema: unknown, context: string = "") {

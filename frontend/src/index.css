@@ -1,9 +1,10 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Orbitron:wght@800;900&display=swap');
 @import "tailwindcss";
 
 @theme {
   --font-family-sans: 'Inter', system-ui, sans-serif;
   --font-family-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-family-logo: 'Orbitron', 'Inter', sans-serif;
 
   --color-surface-base:   #0a0e1a;
   --color-surface-card:   #0f1629;

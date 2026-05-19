@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Database, X, Loader2, Search, ChevronRight } from 'lucide-react';
+import { Database, X, Loader2, Search, ChevronRight, ChevronDown, Shield } from 'lucide-react';
 import { useAppStore, type ConnectionConfig } from '../../store/useAppStore';
 import { apiConnectServer, apiSelectDatabase } from '../../lib/api';
 
@@ -60,7 +60,14 @@ export default function NewConnModal({ onClose }: Props) {
     user: 'user', password: '', database: '',
     dialect: 'postgresql' as ConnectionConfig['dialect'],
     sqlite_path: '',
+    use_ssh: false,
+    ssh_host: '',
+    ssh_port: 22,
+    ssh_user: '',
+    ssh_password: '',
+    ssh_key_path: ''
   });
+  const [showSsh, setShowSsh] = useState(false);
   const [databases, setDatabases] = useState<string[]>([]);
   const [selectingDb, setSelectingDb] = useState(false);
 
@@ -106,14 +113,14 @@ export default function NewConnModal({ onClose }: Props) {
   };
 
   const field = (key: keyof typeof form, label: string, type = 'text') => (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1 w-full">
       <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider">{label}</label>
       <input
         type={type}
-        value={form[key] as string}
+        value={form[key] as string | number}
         onChange={e => setForm(f => ({ ...f, [key]: type === 'number' ? +e.target.value : e.target.value }))}
         className="bg-surface-muted border border-surface-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent transition-colors"
-        placeholder={key === 'password' ? '(Optional)' : ''}
+        placeholder={key.includes('password') || key.includes('key_path') ? '(Optional)' : ''}
       />
     </div>
   );
@@ -162,10 +169,44 @@ export default function NewConnModal({ onClose }: Props) {
                   {field('user', 'Username')}
                   {field('password', 'Password', 'password')}
                 </div>
+
+                <div className="pt-3 border-t border-surface-border mt-2">
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      setShowSsh(!showSsh);
+                      setForm(f => ({ ...f, use_ssh: !showSsh }));
+                    }}
+                    className={`flex items-center justify-between w-full rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-widest transition-colors ${showSsh ? 'bg-warning/10 text-warning border border-warning/20' : 'text-text-muted hover:text-text-primary hover:bg-surface-muted/50'}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Shield className="w-3.5 h-3.5" />
+                      <span>SSH Tunnel</span>
+                      {showSsh && <span className="text-[9px] font-normal opacity-70 normal-case tracking-normal ml-1">Enabled</span>}
+                    </div>
+                    <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${showSsh ? 'rotate-180' : ''}`} />
+                  </button>
+                  {showSsh && (
+                    <div className="flex flex-col gap-3 mt-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                      <p className="text-[10px] text-text-muted bg-surface-muted/50 border border-surface-border/50 rounded-lg p-2.5 leading-relaxed">
+                        Connect to a database behind a Bastion host. NivexQL will establish a local SSH tunnel and route all traffic through it securely.
+                      </p>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="col-span-2">{field('ssh_host', 'Bastion Host')}</div>
+                        <div>{field('ssh_port', 'SSH Port', 'number')}</div>
+                      </div>
+                      {field('ssh_user', 'SSH Username')}
+                      <div className="grid grid-cols-2 gap-3">
+                        {field('ssh_password', 'SSH Password', 'password')}
+                        {field('ssh_key_path', 'Private Key Path')}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </>
             )}
 
-            {error && <div className="text-[10px] text-danger bg-danger/10 p-3 rounded-lg border border-danger/20">{error}</div>}
+            {error && <div className="text-[10px] text-danger bg-danger/10 p-3 rounded-lg border border-danger/20 break-words">{error}</div>}
 
             <button type="submit" disabled={loading} className="btn-primary w-full py-3 mt-2">
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Continue'}

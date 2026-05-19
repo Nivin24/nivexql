@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "electron": "VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
-    "start": "concurrently -k \"npm run dev\" \"wait-on http://localhost:5173 && npm run electron\""
+    "start": "concurrently -k \"npm run dev\" \"wait-on http://localhost:5173 && npm run electron\"",
+    "package": "npm run build && electron-builder"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -18,6 +19,7 @@
     "@types/d3": "^7.4.3",
     "clsx": "^2.1.1",
     "d3": "^7.9.0",
+    "electron-updater": "^6.3.0",
     "lucide-react": "^1.14.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
@@ -47,5 +49,26 @@
     "typescript-eslint": "^8.58.2",
     "vite": "^8.0.10",
     "wait-on": "^9.0.5"
+  },
+  "build": {
+    "appId": "com.nivexql.app",
+    "productName": "NivexQL",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "Nivin24",
+      "repo": "nivexql"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.developer-tools"
+    }
   }
 }
