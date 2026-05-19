@@ -74,7 +74,7 @@ export default function D3Chart({ data, columns, chartType, onDrillDown }: Props
         .on('mouseover', function(event, d) { d3.select(this).attr('opacity', 1).attr('fill', '#8aa5fc'); showTip(event, d as any); })
         .on('mousemove', (event, d) => showTip(event, d as any))
         .on('mouseleave', function() { d3.select(this).attr('opacity', 0.85).attr('fill', '#6c8dfa'); hideTip(); })
-        .on('click', (event, d) => onDrillDown?.(xCol, d[xCol]));
+        .on('click', (_event, d) => onDrillDown?.(xCol, d[xCol]));
     }
 
     // ---- LINE & AREA ----
@@ -103,7 +103,7 @@ export default function D3Chart({ data, columns, chartType, onDrillDown }: Props
         .attr('r', 4).attr('fill', '#6c8dfa').attr('stroke', '#0a0e1a').attr('stroke-width', 2).style('cursor', 'pointer')
         .on('mouseover', function(event, d) { d3.select(this).attr('r', 6).attr('fill', '#8aa5fc'); showTip(event, d); })
         .on('mouseleave', function() { d3.select(this).attr('r', 4).attr('fill', '#6c8dfa'); hideTip(); })
-        .on('click', (event, d) => onDrillDown?.(xCol, d[xCol]));
+        .on('click', (_event, d) => onDrillDown?.(xCol, d[xCol]));
     }
 
     // ---- SCATTER & BUBBLE ----
@@ -127,7 +127,7 @@ export default function D3Chart({ data, columns, chartType, onDrillDown }: Props
         .attr('fill', '#6c8dfa').attr('opacity', 0.6).attr('stroke', '#6c8dfa').attr('stroke-width', 1.5).style('cursor', 'pointer')
         .on('mouseover', function(event, d) { d3.select(this).attr('opacity', 1).attr('stroke', '#fff'); showTip(event, d as any); })
         .on('mouseleave', function() { d3.select(this).attr('opacity', 0.6).attr('stroke', '#6c8dfa'); hideTip(); })
-        .on('click', (event, d) => onDrillDown?.(xCol, d[xCol]));
+        .on('click', (_event, d) => onDrillDown?.(xCol, d[xCol]));
     }
 
     // ---- PIE ----
@@ -139,11 +139,11 @@ export default function D3Chart({ data, columns, chartType, onDrillDown }: Props
       const color = d3.scaleOrdinal(d3.schemeTableau10);
 
       pieG.selectAll('path').data(pie(data.slice(0, 15))).join('path')
-        .attr('d', arc).attr('fill', (d, i) => color(i.toString())).attr('stroke', '#0a0e1a').attr('stroke-width', 3).style('cursor', 'pointer')
+        .attr('d', arc).attr('fill', (_d, i) => color(i.toString())).attr('stroke', '#0a0e1a').attr('stroke-width', 3).style('cursor', 'pointer')
         .on('mouseover', function(event, d) { d3.select(this).attr('opacity', 0.8).attr('transform', 'scale(1.05)'); showTip(event, d.data); })
         .on('mousemove', (event, d) => showTip(event, d.data))
         .on('mouseleave', function() { d3.select(this).attr('opacity', 1).attr('transform', 'scale(1)'); hideTip(); })
-        .on('click', (event, d) => onDrillDown?.(xCol, d.data[xCol]));
+        .on('click', (_event, d) => onDrillDown?.(xCol, d.data[xCol]));
 
       // Legend for pie
       const legend = g.append('g').attr('transform', `translate(${width - 130}, 0)`);

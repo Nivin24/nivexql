@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { Settings2, ArrowDownRight, Hash } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Settings2, ArrowDownRight } from 'lucide-react';
 
 interface PivotTableProps {
   data: Record<string, unknown>[];

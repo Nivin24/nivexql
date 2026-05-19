@@ -1,12 +1,11 @@
-import React, { useState, useCallback } from 'react';
+import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Database, Plus, Trash2, ChevronRight, ChevronDown, Star,
-  Table, Columns, Search, Loader2, CheckCircle2, ServerCrash, X, Settings, Layout, BookOpen, Type, Clock, XCircle, Palette, Sun, Moon, BookMarked, Copy, Shield
+  Database, Plus, Trash2, ChevronDown, Star,
+  Table, Columns, Search, Loader2, CheckCircle2, Layout, BookOpen, Type, Clock, XCircle, Palette, Sun, Moon, BookMarked, Copy, Shield
 } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
-import type { ConnectionConfig } from '../../store/useAppStore';
-import { apiConnectServer, apiSearchDatabases, apiSelectDatabase } from '../../lib/api';
+import { apiConnectServer, apiSelectDatabase } from '../../lib/api';
 import { editorThemes } from '../../lib/editorThemes';
 import { format } from 'sql-formatter';
 
@@ -22,8 +21,10 @@ export default function Sidebar({ width }: SidebarProps) {
   const schema = useAppStore(s => s.schema);
   const setSchema = useAppStore(s => s.setSchema);
   const setShowConnModal = useAppStore(s => s.setShowConnModal);
-  
-  const activeCellId = useAppStore(s => s.activeCellId);
+  const activeNotebookId = useAppStore(s => s.activeNotebookId);
+  const notebooks = useAppStore(s => s.notebooks);
+  const activeNotebook = notebooks.find(n => n.id === activeNotebookId);
+  const activeCellId = activeNotebook?.activeCellId || null;
   const updateCell = useAppStore(s => s.updateCell);
   
   const globalContext = useAppStore(s => s.globalContext);

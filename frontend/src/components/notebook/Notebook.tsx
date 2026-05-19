@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Search, BookOpen, Download, ChevronDown, X, Edit2 } from 'lucide-react';
+import { Plus, Search, BookOpen, Download, ChevronDown, X } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import NotebookCellComponent from './NotebookCell';
 import LlmSettingsPanel from '../shared/LlmSettingsPanel';
@@ -46,7 +46,7 @@ export default function Notebook({ onOpenSearch }: { onOpenSearch?: () => void }
     setDragOverId(id);
   };
 
-  const handleDragLeave = (e: React.DragEvent, id: string) => {
+  const handleDragLeave = (_e: React.DragEvent, id: string) => {
     // Only clear if we actually left the element entirely
     if (dragOverId === id) {
       // Small timeout to prevent flicker when moving between children

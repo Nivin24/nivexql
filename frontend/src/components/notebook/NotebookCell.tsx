@@ -2,9 +2,9 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Trash2, Play, Sparkles, ChevronDown, ChevronUp, 
   BarChart2, Table as TableIcon, Download, MessageSquare, 
-  Loader2, Zap, AlignLeft, Pencil, Check, Palette, GripVertical, Pin, PinOff, LayoutGrid, Info, Send
+  Loader2, Zap, AlignLeft, Pencil, Check, Palette, GripVertical, Pin, LayoutGrid, Info, Send
 } from 'lucide-react';
-import Editor, { loader } from '@monaco-editor/react';
+import Editor from '@monaco-editor/react';
 import { format } from 'sql-formatter';
 import { useAppStore, type NotebookCell } from '../../store/useAppStore';
 import { apiQuery, apiGenerateSql, apiFixSql, apiAnalyzeResults, apiGenerateFollowUps } from '../../lib/api';
