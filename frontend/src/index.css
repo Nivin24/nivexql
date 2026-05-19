@@ -28,6 +28,47 @@
   --shadow-card: 0 4px 24px rgba(0,0,0,0.4);
 }
 
+/* ── Light Theme Overrides ──────────────────────────────── */
+html[data-theme="light"] {
+  --color-surface-base:   #f0f4ff;
+  --color-surface-card:   #ffffff;
+  --color-surface-border: #d1d9ef;
+  --color-surface-muted:  #e4eaf8;
+  --color-surface-hover:  #d8e1f5;
+
+  --color-accent:         #4a6ef5;
+  --color-accent-hover:   #3558e8;
+  --color-accent-glow:    rgba(74,110,245,0.18);
+  --color-accent-dim:     rgba(74,110,245,0.10);
+
+  --color-text-primary:   #0f172a;
+  --color-text-secondary: #374466;
+  --color-text-muted:     #7889b0;
+
+  --shadow-glow: 0 0 20px rgba(74,110,245,0.15);
+  --shadow-card: 0 4px 24px rgba(0,0,0,0.10);
+}
+
+html[data-theme="light"] body,
+html[data-theme="light"] #root {
+  background-color: #f0f4ff;
+  color: #0f172a;
+}
+
+html[data-theme="light"] .glass {
+  background: rgba(255,255,255,0.80);
+  border-color: #d1d9ef;
+}
+
+html[data-theme="light"] .btn-ghost:hover { background: #e4eaf8; color: #0f172a; }
+html[data-theme="light"] .scrollbar-thin { scrollbar-color: #d1d9ef transparent; }
+html[data-theme="light"] .scrollbar-thin::-webkit-scrollbar-thumb { background: #d1d9ef; }
+html[data-theme="light"] .d3-tooltip {
+  background: #ffffff;
+  border-color: #d1d9ef;
+  color: #0f172a;
+}
+
 @layer base {
   *, *::before, *::after { box-sizing: border-box; }
 

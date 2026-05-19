@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import {
   Database, Plus, Trash2, ChevronRight, ChevronDown, Star,
-  Table, Columns, Search, Loader2, CheckCircle2, ServerCrash, X, Settings, Layout, BookOpen, Type, Clock, XCircle, Palette
+  Table, Columns, Search, Loader2, CheckCircle2, ServerCrash, X, Settings, Layout, BookOpen, Type, Clock, XCircle, Palette, Sun, Moon, BookMarked
 } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import type { ConnectionConfig } from '../../store/useAppStore';
@@ -33,6 +33,12 @@ export default function Sidebar({ width }: SidebarProps) {
   const setEditorTheme = useAppStore(s => s.setEditorTheme);
   const queryHistory = useAppStore(s => s.queryHistory);
   const clearQueryHistory = useAppStore(s => s.clearQueryHistory);
+  const favorites = useAppStore(s => s.favorites);
+  const addFavorite = useAppStore(s => s.addFavorite);
+  const appTheme = useAppStore(s => s.appTheme);
+  const setAppTheme = useAppStore(s => s.setAppTheme);
+
+  const toggleTheme = () => setAppTheme(appTheme === 'dark' ? 'light' : 'dark');
   
   const cycleTextSize = () => {
     const sizes: ('xs' | 'sm' | 'base' | 'lg')[] = ['xs', 'sm', 'base', 'lg'];
@@ -40,7 +46,7 @@ export default function Sidebar({ width }: SidebarProps) {
     setUiTextSize(next);
   };
   
-  const [tab, setTab] = useState<'schema' | 'history' | 'knowledge'>('schema');
+  const [tab, setTab] = useState<'schema' | 'history' | 'saved' | 'knowledge'>('schema');
 
   const [expandedTbls, setExpandedTbls] = useState<Record<string, boolean>>({});
 
@@ -56,6 +62,13 @@ export default function Sidebar({ width }: SidebarProps) {
 
   const toggleTable = (name: string) => {
     setExpandedTbls(prev => ({ ...prev, [name]: !prev[name] }));
+  };
+
+  const formatCount = (num: number | undefined) => {
+    if (num === undefined) return '';
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'k';
+    return num.toString();
   };
 
   const insertTable = (name: string) => {
@@ -143,21 +156,28 @@ export default function Sidebar({ width }: SidebarProps) {
 
       {/* Tabs */}
       <div className="flex border-b border-surface-border bg-surface-base/50">
-        <button 
+        <button
           onClick={() => setTab('schema')}
           className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-widest transition-all
             ${tab === 'schema' ? 'text-accent border-b-2 border-accent' : 'text-text-muted hover:text-text-primary'}`}
         >
           Schema
         </button>
-        <button 
+        <button
           onClick={() => setTab('history')}
           className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-widest transition-all
             ${tab === 'history' ? 'text-accent border-b-2 border-accent' : 'text-text-muted hover:text-text-primary'}`}
         >
           History
         </button>
-        <button 
+        <button
+          onClick={() => setTab('saved')}
+          className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-widest transition-all
+            ${tab === 'saved' ? 'text-accent border-b-2 border-accent' : 'text-text-muted hover:text-text-primary'}`}
+        >
+          Saved
+        </button>
+        <button
           onClick={() => setTab('knowledge')}
           className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-widest transition-all
             ${tab === 'knowledge' ? 'text-accent border-b-2 border-accent' : 'text-text-muted hover:text-text-primary'}`}
@@ -178,7 +198,13 @@ export default function Sidebar({ width }: SidebarProps) {
                 >
                   <ChevronDown className={`w-3 h-3 text-text-muted transition-transform ${expandedTbls[tbl.name] ? '' : '-rotate-90'}`} />
                   <Table className="w-3.5 h-3.5 text-accent/70" />
-                  <span className="text-xs text-text-secondary font-medium flex-1 truncate">{tbl.name}</span>
+                  <span className="text-xs text-text-secondary font-medium truncate">{tbl.name}</span>
+                  {tbl.rowCount !== undefined && (
+                    <span className="text-[9px] font-mono text-text-muted/60 bg-surface-base px-1.5 py-0.5 rounded border border-surface-border">
+                      {formatCount(tbl.rowCount)}
+                    </span>
+                  )}
+                  <div className="flex-1" />
                   <button 
                     onClick={(e) => { e.stopPropagation(); insertTable(tbl.name); }}
                     className="opacity-0 group-hover:opacity-100 p-1 text-accent hover:bg-accent/10 rounded"
@@ -242,12 +268,55 @@ export default function Sidebar({ width }: SidebarProps) {
                       ? <CheckCircle2 className="w-3 h-3 text-success shrink-0" />
                       : <XCircle className="w-3 h-3 text-danger shrink-0" />}
                     <span className="text-[10px] font-bold text-text-muted truncate flex-1">{h.cellName}</span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); addFavorite(h.sql); }}
+                      className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-warning transition-all"
+                      title="Save query"
+                    >
+                      <Star className="w-3 h-3" />
+                    </button>
                     <span className="text-[9px] text-text-muted/50 shrink-0">{h.executionMs}ms</span>
                   </div>
                   <pre className="text-[10px] text-text-secondary font-mono truncate bg-surface-base/40 rounded px-2 py-1 max-w-full">{h.sql.replace(/\s+/g, ' ').trim()}</pre>
                   <div className="flex items-center justify-between">
                     <span className="text-[9px] text-text-muted/60">{h.rowCount} rows</span>
                     <span className="text-[9px] text-text-muted/50">{new Date(h.timestamp).toLocaleTimeString()}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tab === 'saved' && (
+          <div className="flex flex-col h-full animate-in fade-in">
+            <div className="flex items-center justify-between px-4 pt-3 pb-2">
+              <div className="flex items-center gap-2 text-accent">
+                <BookMarked className="w-3.5 h-3.5" />
+                <span className="text-[11px] font-bold uppercase tracking-wider">Saved Queries</span>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto scrollbar-thin px-2 pb-4 flex flex-col gap-1.5">
+              {favorites.length === 0 && (
+                <div className="p-8 text-center opacity-30">
+                  <Star className="w-8 h-8 mx-auto mb-2" />
+                  <p className="text-[10px] uppercase tracking-widest font-bold">No saved queries</p>
+                  <p className="text-[9px] mt-1 text-text-muted">Star queries from History to save them here</p>
+                </div>
+              )}
+              {favorites.map((sql, i) => (
+                <div
+                  key={i}
+                  className="group flex flex-col gap-1 p-2.5 rounded-xl border border-surface-border/50 bg-surface-card/30 hover:border-accent/20 hover:bg-surface-card/60 cursor-pointer transition-all"
+                  onClick={() => {
+                    const cellId = useAppStore.getState().activeCellId;
+                    if (cellId) useAppStore.getState().updateCell(cellId, { sql });
+                  }}
+                  title="Click to load into active cell"
+                >
+                  <div className="flex items-center gap-2">
+                    <Star className="w-3 h-3 text-warning fill-warning shrink-0" />
+                    <pre className="text-[10px] text-text-secondary font-mono truncate flex-1">{sql.replace(/\s+/g, ' ').trim()}</pre>
                   </div>
                 </div>
               ))}
@@ -285,7 +354,7 @@ export default function Sidebar({ width }: SidebarProps) {
           </div>
         </div>
         <div className="flex items-center justify-between">
-          <button 
+          <button
             onClick={cycleTextSize}
             className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-surface-muted transition-colors text-text-muted hover:text-text-primary"
             title={`Toggle Text Size (Current: ${uiTextSize.toUpperCase()})`}
@@ -294,20 +363,32 @@ export default function Sidebar({ width }: SidebarProps) {
             <span className="text-[10px] font-medium">Text: {uiTextSize.toUpperCase()}</span>
           </button>
 
-          <div className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-surface-muted transition-colors text-text-muted hover:text-text-primary group relative">
-            <Palette className="w-4 h-4" />
-            <select 
-              value={editorTheme}
-              onChange={(e) => setEditorTheme(e.target.value)}
-              className="bg-transparent border-none text-[10px] font-medium focus:outline-none cursor-pointer appearance-none pr-4"
-              style={{ width: 'fit-content' }}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={toggleTheme}
+              className="flex items-center gap-1.5 p-1.5 rounded-lg hover:bg-surface-muted transition-colors text-text-muted hover:text-text-primary"
+              title={appTheme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
             >
-              {editorThemes.map(t => (
-                <option key={t.id} value={t.id} className="bg-surface-card text-text-primary">{t.label}</option>
-              ))}
-            </select>
-            <div className="absolute right-2 pointer-events-none group-hover:text-accent transition-colors">
-              <ChevronDown className="w-2.5 h-2.5 opacity-60" />
+              {appTheme === 'dark'
+                ? <Sun className="w-4 h-4 text-warning" />
+                : <Moon className="w-4 h-4 text-accent" />}
+            </button>
+
+            <div className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-surface-muted transition-colors text-text-muted hover:text-text-primary group relative">
+              <Palette className="w-4 h-4" />
+              <select
+                value={editorTheme}
+                onChange={(e) => setEditorTheme(e.target.value)}
+                className="bg-transparent border-none text-[10px] font-medium focus:outline-none cursor-pointer appearance-none pr-4"
+                style={{ width: 'fit-content' }}
+              >
+                {editorThemes.map(t => (
+                  <option key={t.id} value={t.id} className="bg-surface-card text-text-primary">{t.label}</option>
+                ))}
+              </select>
+              <div className="absolute right-2 pointer-events-none group-hover:text-accent transition-colors">
+                <ChevronDown className="w-2.5 h-2.5 opacity-60" />
+              </div>
             </div>
           </div>
         </div>

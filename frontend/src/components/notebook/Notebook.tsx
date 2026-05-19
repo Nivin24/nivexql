@@ -1,17 +1,19 @@
 import React, { useState } from 'react';
-import { Plus, Trash2, Layout, BookOpen } from 'lucide-react';
+import { Plus, Search, BookOpen, Download, ChevronDown } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import NotebookCellComponent from './NotebookCell';
 import LlmSettingsPanel from '../shared/LlmSettingsPanel';
 
-export default function Notebook() {
+export default function Notebook({ onOpenSearch }: { onOpenSearch?: () => void }) {
   const cells = useAppStore(s => s.cells);
   const addCell = useAppStore(s => s.addCell);
   const moveCell = useAppStore(s => s.moveCell);
+  const exportNotebook = useAppStore(s => s.exportNotebook);
 
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [dragPosition, setDragPosition] = useState<'before' | 'after' | null>(null);
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   const handleDragStart = (e: React.DragEvent, id: string) => {
     setDraggedId(id);
@@ -74,7 +76,50 @@ export default function Notebook() {
         
         <div className="flex items-center gap-3">
           <LlmSettingsPanel />
-          <button 
+          <button
+            onClick={onOpenSearch}
+            className="btn-ghost flex items-center gap-1.5 text-xs"
+            title="Search cells (Cmd+F)"
+          >
+            <Search className="w-4 h-4" />
+            <span className="hidden sm:inline text-[11px] font-medium text-text-muted">Search</span>
+            <kbd className="hidden sm:inline text-[9px] font-mono bg-surface-muted text-text-muted px-1 py-0.5 rounded border border-surface-border ml-0.5">⌘F</kbd>
+          </button>
+          
+          <div className="relative">
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="btn-ghost flex items-center gap-1.5 text-xs"
+              title="Export Notebook"
+            >
+              <Download className="w-4 h-4" />
+              <span className="hidden sm:inline text-[11px] font-medium text-text-muted">Export</span>
+              <ChevronDown className={`w-3 h-3 transition-transform ${showExportMenu ? 'rotate-180' : ''}`} />
+            </button>
+            {showExportMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)} />
+                <div className="absolute right-0 mt-2 w-48 rounded-xl border border-surface-border bg-surface-card shadow-card py-2 z-50 animate-in slide-in-from-top-2">
+                  <button
+                    onClick={() => { exportNotebook('json'); setShowExportMenu(false); }}
+                    className="w-full text-left px-4 py-2 text-xs text-text-primary hover:bg-surface-muted transition-colors flex items-center justify-between"
+                  >
+                    <span>As JSON Document</span>
+                    <span className="text-[9px] font-mono text-text-muted">.json</span>
+                  </button>
+                  <button
+                    onClick={() => { exportNotebook('sql'); setShowExportMenu(false); }}
+                    className="w-full text-left px-4 py-2 text-xs text-text-primary hover:bg-surface-muted transition-colors flex items-center justify-between"
+                  >
+                    <span>As SQL Script</span>
+                    <span className="text-[9px] font-mono text-text-muted">.sql</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          <button
             onClick={addCell}
             className="btn-primary"
           >
@@ -88,8 +133,9 @@ export default function Notebook() {
       <div className="flex flex-col flex-1 items-center justify-center py-8 px-4">
         <div className="flex flex-col gap-6 max-w-[95%] w-full">
           {cells.map((cell, idx) => (
-            <div 
+            <div
               key={cell.id}
+              data-cell-id={cell.id}
               className="relative"
               draggable
               onDragStart={(e) => handleDragStart(e, cell.id)}

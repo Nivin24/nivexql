@@ -306,6 +306,16 @@ export default function NotebookCellComponent({ cell, index }: Props) {
     });
   };
 
+  // Conditional row highlighting — negative values = red tint
+  const getRowHighlight = (row: Record<string, unknown>): string => {
+    const vals = Object.values(row);
+    for (const v of vals) {
+      const n = Number(v);
+      if (!isNaN(n) && isFinite(n) && n < 0) return 'bg-danger/5 border-l-2 border-l-danger/40';
+    }
+    return '';
+  };
+
   return (
     <div className="flex flex-col">
       {/* Cell Name — centered above card */}
@@ -548,7 +558,7 @@ export default function NotebookCellComponent({ cell, index }: Props) {
                           </thead>
                           <tbody>
                             {sortedRows.map((row, i) => (
-                              <tr key={i} className="border-b border-surface-border/30 hover:bg-surface-hover/50">
+                              <tr key={i} className={`border-b border-surface-border/30 hover:bg-surface-hover/50 ${getRowHighlight(row)}`}>
                                 {filteredCols.map(c => (
                                   <td 
                                     key={c} 

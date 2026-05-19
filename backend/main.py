@@ -147,11 +147,39 @@ def select_database(database: str = Body(..., embed=True)):
         inspector = inspect(new_engine)
         tables = []
         for table_name in inspector.get_table_names():
+            # Get primary keys
+            pk_constraint = inspector.get_pk_constraint(table_name)
+            pk_cols = set(pk_constraint.get("constrained_columns", []))
+
             cols = []
             for col in inspector.get_columns(table_name):
-                cols.append({"name": col["name"], "type": str(col["type"])})
-            tables.append({"name": table_name, "columns": cols})
-        
+                cols.append({
+                    "name": col["name"],
+                    "type": str(col["type"]),
+                    "isPrimaryKey": col["name"] in pk_cols
+                })
+
+            # Get foreign keys
+            fks = []
+            for fk in inspector.get_foreign_keys(table_name):
+                for local_col, ref_col in zip(fk["constrained_columns"], fk["referred_columns"]):
+                    fks.append({
+                        "column": local_col,
+                        "referencedTable": fk["referred_table"],
+                        "referencedColumn": ref_col
+                    })
+
+            # Fast count query
+            row_count = 0
+            try:
+                with new_engine.connect() as conn:
+                    res = conn.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
+                    row_count = res.scalar() or 0
+            except:
+                pass
+
+            tables.append({"name": table_name, "columns": cols, "foreignKeys": fks, "rowCount": row_count})
+
         _session["engine"] = new_engine
         _session["current_db"] = database
         return {"status": "selected", "tables": tables}

@@ -15,7 +15,9 @@ export interface ConnectionConfig {
 
 export interface SchemaTable {
   name: string;
-  columns: { name: string; type: string }[];
+  columns: { name: string; type: string; isPrimaryKey?: boolean }[];
+  foreignKeys?: { column: string; referencedTable: string; referencedColumn: string }[];
+  rowCount?: number;
 }
 
 export interface QueryResult {
@@ -76,6 +78,7 @@ interface AppState {
   uiTextSize: 'xs' | 'sm' | 'base' | 'lg';
   editorTheme: string;
   queryHistory: QueryHistoryEntry[];
+  appTheme: 'dark' | 'light';
 
   // Actions - Connections
   addConnection: (c: ConnectionConfig) => void;
@@ -110,6 +113,8 @@ interface AppState {
   setEditorTheme: (id: string) => void;
   addQueryHistory: (entry: Omit<QueryHistoryEntry, 'id' | 'timestamp'>) => void;
   clearQueryHistory: () => void;
+  setAppTheme: (theme: 'dark' | 'light') => void;
+  exportNotebook: (format: 'json' | 'sql') => void;
 }
 
 const createCell = (): NotebookCell => ({
@@ -156,6 +161,7 @@ export const useAppStore = create<AppState>()(
       uiTextSize: 'sm',
       editorTheme: 'nvn-dark',
       queryHistory: [],
+      appTheme: 'dark',
 
       addConnection: (c) => set((s) => ({ connections: [...s.connections, c] })),
       removeConnection: (id) => set((s) => ({
@@ -224,6 +230,49 @@ export const useAppStore = create<AppState>()(
         ].slice(0, 100)
       })),
       clearQueryHistory: () => set({ queryHistory: [] }),
+      setAppTheme: (appTheme) => set({ appTheme }),
+
+      exportNotebook: (format) => {
+        const state = get();
+        if (state.cells.length === 0) return;
+
+        let content = '';
+        let filename = '';
+        let mime = '';
+
+        if (format === 'json') {
+          const exportData = {
+            exportDate: new Date().toISOString(),
+            cells: state.cells.map(c => ({
+              name: c.name,
+              prompt: c.prompt,
+              sql: c.sql,
+              resultCount: c.queryResult?.rowCount || 0,
+              agentAnalysis: c.agentAnalysis
+            }))
+          };
+          content = JSON.stringify(exportData, null, 2);
+          filename = `nivexql_notebook_${Date.now()}.json`;
+          mime = 'application/json';
+        } else if (format === 'sql') {
+          content = state.cells
+            .filter(c => c.sql.trim().length > 0)
+            .map(c => `-- ${c.name || 'Untitled Analysis'}\n-- Prompt: ${c.prompt}\n${c.sql};\n\n`)
+            .join('');
+          filename = `nivexql_notebook_${Date.now()}.sql`;
+          mime = 'application/sql';
+        }
+
+        const blob = new Blob([content], { type: mime });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      },
     }),
     {
       name: 'nivexql-storage', // localStorage key
@@ -245,6 +294,7 @@ export const useAppStore = create<AppState>()(
         editorTheme: state.editorTheme,
         queryHistory: state.queryHistory,
         favorites: state.favorites,
+        appTheme: state.appTheme,
       }),
     }
   )
