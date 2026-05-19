@@ -61,6 +61,15 @@
       "electron/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "electron/bin",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
     "publish": {
       "provider": "github",
       "owner": "Nivin24",
