@@ -49,6 +49,11 @@ app.include_router(database.router, tags=["Database Operations"])
 app.include_router(llm.router, tags=["AI & LLM Services"])
 
 if __name__ == "__main__":
+    import sys
     port = int(database.os.getenv("NIVEXQL_PORT", "8081"))
     logger.info(f"Starting server on http://127.0.0.1:{port}")
-    uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True)
+    is_frozen = getattr(sys, "frozen", False)
+    if is_frozen:
+        uvicorn.run(app, host="127.0.0.1", port=port)
+    else:
+        uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True)
