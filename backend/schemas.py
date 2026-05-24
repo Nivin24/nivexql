@@ -41,3 +41,7 @@ class AnalyzeRequest(BaseModel):
     prompt: str
     results: list[dict]
     columns: list[str]
+
+class PlannerRequest(BaseModel):
+    db_schema: list[dict]
+    context: str = ""

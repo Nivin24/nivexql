@@ -6,7 +6,7 @@ import time
 from fastapi import APIRouter, HTTPException
 
 from config import _llm_config
-from schemas import GenerateRequest, FixRequest, AnalyzeRequest
+from schemas import GenerateRequest, FixRequest, AnalyzeRequest, PlannerRequest
 from logger import logger
 
 router = APIRouter()
@@ -156,7 +156,7 @@ async def generate_sql(req: GenerateRequest):
 
     logger.info(f"Routing generation request to '{provider}' using model: '{model}'")
     try:
-        async with httpx.AsyncClient(timeout=90) as client:
+        async with httpx.AsyncClient(timeout=300.0) as client:
             if provider == "ollama":
                 resp = await client.post(f"{_llm_config['endpoint']}/api/chat", json={
                     "model": model, 
@@ -245,7 +245,7 @@ async def fix_sql(req: FixRequest):
 
     logger.info(f"Routing debug correction to '{provider}' using model: '{model}'")
     try:
-        async with httpx.AsyncClient(timeout=90) as client:
+        async with httpx.AsyncClient(timeout=300.0) as client:
             if provider == "ollama":
                 resp = await client.post(f"{_llm_config['endpoint']}/api/chat", json={"model": model, "messages": messages, "stream": False})
                 sql = resp.json()["message"]["content"].strip()
@@ -279,7 +279,7 @@ async def analyze_results(req: AnalyzeRequest):
     insights = ""
 
     try:
-        async with httpx.AsyncClient(timeout=90) as client:
+        async with httpx.AsyncClient(timeout=300.0) as client:
             if provider == "ollama":
                 resp = await client.post(f"{_llm_config['endpoint']}/api/chat", json={
                     "model": model, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}], "stream": False
@@ -362,3 +362,111 @@ async def generate_followups(req: dict):
         logger.warning(f"Failed to generate followups: {e}")
         pass
     return {"suggestions": []}
+
+@router.post("/api/planner/niches")
+async def plan_dashboard_niches(req: PlannerRequest):
+    logger.info("AI dashboard niches planning request received.")
+    start_time = time.time()
+    
+    schema_limit = 4000
+    schema_text = ""
+    for tbl in req.db_schema:
+        cols = ", ".join(f"{c['name']} ({c['type']})" for c in tbl.get("columns", []))
+        entry = f"Table {tbl['name']}: {cols}\n"
+        if len(schema_text) + len(entry) > schema_limit:
+            schema_text += "... (truncated)"
+            break
+        schema_text += entry
+
+    context_block = ""
+    if req.context.strip():
+        logger.info(f"Global business context rule sets found and formatted for planner. Len: {len(req.context)}")
+        context_block = (
+            "\n══════════════════════════════════════════\n"
+            "STRICT USER-DEFINED RULES — YOU MUST FOLLOW ALL OF THESE:\n"
+            "══════════════════════════════════════════\n"
+            + "\n".join(f"{i+1}. {line.strip()}" for i, line in enumerate(req.context.strip().splitlines()) if line.strip())
+            + "\n══════════════════════════════════════════\n"
+        )
+
+    system_prompt = (
+        "You are an expert business intelligence architect. Analyze the provided database schema "
+        "and suggest exactly 3 storytelling dashboard niches (e.g. Sales Performance, User Growth, Inventory Operational Efficiency) "
+        "that would be highly relevant and valuable for this database.\n\n"
+        "For each niche, suggest exactly 4 highly specific, ready-to-run SQL queries that answer key analytical questions. "
+        "Each query should tell a clear story, utilize correct SQL syntax (based on standard SQL), "
+        "and refer ONLY to the tables and columns present in the schema.\n\n"
+        "Return ONLY a JSON object in this format:\n"
+        "{\n"
+        '  "niches": [\n'
+        "    {\n"
+        '      "name": "Niche Name (e.g. Revenue & Growth Analytics)",\n'
+        '      "description": "Short explanation of the business objective and storytelling angle of this niche.",\n'
+        '      "queries": [\n'
+        "        {\n"
+        '          "title": "Query Title (e.g. Monthly Revenue Trends)",\n'
+        '          "question": "The question this query answers.",\n'
+        '          "sql": "SELECT ...",\n'
+        '          "viz": "bar" // Recommended visualization: bar, line, pie, area, scatter, or pivot\n'
+        "        }\n"
+        "      ]\n"
+        "    }\n"
+        "  ]\n"
+        "}\n\n"
+        + context_block
+        + f"\nSchema:\n{schema_text}"
+    )
+
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": "Suggest storytelling dashboard niches and matching queries based on my database schema."}]
+
+    provider = _llm_config["provider"]
+    model = _llm_config["model"]
+    api_key = _llm_config["api_key"]
+    response_text = ""
+
+    logger.info(f"Routing planning request to '{provider}' using model: '{model}'")
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            if provider == "ollama":
+                resp = await client.post(f"{_llm_config['endpoint']}/api/chat", json={
+                    "model": model, 
+                    "messages": messages, 
+                    "stream": False
+                })
+                response_text = resp.json()["message"]["content"].strip()
+            elif provider == "openai":
+                resp = await client.post("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {api_key}"}, json={
+                    "model": model, 
+                    "messages": messages
+                })
+                response_text = resp.json()["choices"][0]["message"]["content"].strip()
+            elif provider == "gemini":
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+                payload = {"contents": [{"parts": [{"text": system_prompt}]}]}
+                resp = await client.post(url, json=payload)
+                response_text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except Exception as e:
+        logger.error(f"LLM API Gateway error in planner: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    duration = int(time.time() - start_time)
+    logger.info(f"Received LLM response for planner in {duration}s. Parsing JSON response...")
+    
+    try:
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in response_text:
+            response_text = response_text.split("```")[1].split("```")[0].strip()
+        
+        # Clean up any leading/trailing garbage before JSON start/end
+        start_idx = response_text.find("{")
+        end_idx = response_text.rfind("}") + 1
+        if start_idx >= 0 and end_idx > start_idx:
+            response_text = response_text[start_idx:end_idx]
+            
+        result = json.loads(response_text)
+        logger.info(f"AI dashboard niches planning completed successfully. Suggested {len(result.get('niches', []))} niches.")
+        return result
+    except Exception as parse_err:
+        logger.error(f"Failed to parse JSON response for planner. Raw text: {response_text}. Error: {parse_err}")
+        raise HTTPException(status_code=500, detail="AI generated an invalid planner format. Please try again.")

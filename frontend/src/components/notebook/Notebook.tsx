@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Search, BookOpen, Download, ChevronDown, X, Presentation } from 'lucide-react';
+import { Plus, Search, BookOpen, Download, ChevronDown, X, Presentation, Sparkles, FileDown } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import NotebookCellComponent from './NotebookCell';
 import LlmSettingsPanel from '../shared/LlmSettingsPanel';
@@ -27,8 +27,10 @@ export default function Notebook({ onOpenSearch }: { onOpenSearch?: () => void }
   const addCell = useAppStore(s => s.addCell);
   const moveCell = useAppStore(s => s.moveCell);
   const exportNotebook = useAppStore(s => s.exportNotebook);
+  const exportDashboard = useAppStore(s => s.exportDashboard);
   const dashboardMode = useAppStore(s => s.dashboardMode);
   const setDashboardMode = useAppStore(s => s.setDashboardMode);
+  const setShowNichePlanner = useAppStore(s => s.setShowNichePlanner);
 
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editingTabName, setEditingTabName] = useState('');
@@ -86,143 +88,187 @@ export default function Notebook({ onOpenSearch }: { onOpenSearch?: () => void }
     setActiveDragId(null);
   };
 
+  /** Shared notebook tabs list — used in both nav modes */
+  const TabsList = () => (
+    <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide flex-1 mr-4">
+      {notebooks.map(nb => (
+        <div
+          key={nb.id}
+          onClick={() => setActiveNotebook(nb.id)}
+          className={`group flex items-center gap-2 px-4 py-2 rounded-t-lg border-b-2 transition-colors cursor-pointer min-w-[120px]
+            ${nb.id === activeNotebookId ? 'bg-surface-card border-accent text-accent font-medium shadow-sm' : 'border-transparent text-text-muted hover:bg-surface-muted/50'}`}
+        >
+          <BookOpen className={`w-3.5 h-3.5 ${nb.id === activeNotebookId ? 'text-accent' : 'text-text-muted'}`} />
+          
+          {editingTabId === nb.id ? (
+            <input
+              autoFocus
+              className="bg-transparent border-none outline-none text-sm w-24 text-text-primary"
+              value={editingTabName}
+              onChange={e => setEditingTabName(e.target.value)}
+              onBlur={() => { renameNotebook(nb.id, editingTabName); setEditingTabId(null); }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { renameNotebook(nb.id, editingTabName); setEditingTabId(null); }
+                if (e.key === 'Escape') setEditingTabId(null);
+              }}
+            />
+          ) : (
+            <span 
+              className="text-sm truncate flex-1"
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                setEditingTabId(nb.id);
+                setEditingTabName(nb.name);
+              }}
+            >
+              {nb.name}
+            </span>
+          )}
+
+          <div className={`flex items-center opacity-0 group-hover:opacity-100 transition-opacity ${nb.id === activeNotebookId ? 'opacity-100' : ''}`}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                removeNotebook(nb.id);
+              }}
+              className="p-1 hover:bg-surface-border rounded text-text-muted hover:text-danger transition-colors"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+      ))}
+      {!dashboardMode && (
+        <button 
+          onClick={addNotebook}
+          className="p-2 ml-1 text-text-muted hover:text-text-primary hover:bg-surface-muted rounded-lg transition-colors"
+          title="New Session"
+        >
+          <Plus className="w-4 h-4" />
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <div id="notebook-scroll" className="flex flex-col h-full overflow-y-auto scrollbar-thin bg-surface-base">
-      {/* Notebook Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border glass sticky top-0 z-20">
-        <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide flex-1 mr-4">
-          {notebooks.map(nb => (
-            <div
-              key={nb.id}
-              onClick={() => setActiveNotebook(nb.id)}
-              className={`group flex items-center gap-2 px-4 py-2 rounded-t-lg border-b-2 transition-colors cursor-pointer min-w-[120px]
-                ${nb.id === activeNotebookId ? 'bg-surface-card border-accent text-accent font-medium shadow-sm' : 'border-transparent text-text-muted hover:bg-surface-muted/50'}`}
-            >
-              <BookOpen className={`w-3.5 h-3.5 ${nb.id === activeNotebookId ? 'text-accent' : 'text-text-muted'}`} />
-              
-              {editingTabId === nb.id ? (
-                <input
-                  autoFocus
-                  className="bg-transparent border-none outline-none text-sm w-24 text-text-primary"
-                  value={editingTabName}
-                  onChange={e => setEditingTabName(e.target.value)}
-                  onBlur={() => { renameNotebook(nb.id, editingTabName); setEditingTabId(null); }}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') { renameNotebook(nb.id, editingTabName); setEditingTabId(null); }
-                    if (e.key === 'Escape') setEditingTabId(null);
-                  }}
-                />
-              ) : (
-                <span 
-                  className="text-sm truncate flex-1"
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    setEditingTabId(nb.id);
-                    setEditingTabName(nb.name);
-                  }}
-                >
-                  {nb.name}
-                </span>
-              )}
-
-              <div className={`flex items-center opacity-0 group-hover:opacity-100 transition-opacity ${nb.id === activeNotebookId ? 'opacity-100' : ''}`}>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeNotebook(nb.id);
-                  }}
-                  className="p-1 hover:bg-surface-border rounded text-text-muted hover:text-danger transition-colors"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            </div>
-          ))}
-          <button 
-            onClick={addNotebook}
-            className="p-2 ml-1 text-text-muted hover:text-text-primary hover:bg-surface-muted rounded-lg transition-colors"
-            title="New Session"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-        </div>
-        
-        <div className="flex items-center gap-3">
-          <LlmSettingsPanel />
-          <button
-            onClick={() => setDashboardMode(!dashboardMode)}
-            className={`btn-ghost flex items-center gap-1.5 text-xs transition-all ${dashboardMode ? 'bg-accent/20 text-accent border border-accent/20' : ''}`}
-            title={dashboardMode ? "Exit Presentation Mode" : "Enter Presentation Mode"}
-          >
-            <Presentation className="w-4 h-4" />
-            <span className="hidden sm:inline text-[11px] font-medium text-text-muted">Present</span>
-          </button>
-          <button
-            onClick={onOpenSearch}
-            className="btn-ghost flex items-center gap-1.5 text-xs"
-            title="Search cells (Cmd+F)"
-          >
-            <Search className="w-4 h-4" />
-            <span className="hidden sm:inline text-[11px] font-medium text-text-muted">Search</span>
-            <kbd className="hidden sm:inline text-[9px] font-mono bg-surface-muted text-text-muted px-1 py-0.5 rounded border border-surface-border ml-0.5">⌘F</kbd>
-          </button>
-          
-          <div className="relative">
+      {/* ── PRESENT MODE NAV — minimal: tabs + present toggle + export dashboard ── */}
+      {dashboardMode ? (
+        <div className="flex items-center justify-between px-5 py-3 border-b border-surface-border/60 glass sticky top-0 z-20 bg-surface-base/80 backdrop-blur-xl">
+          <TabsList />
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Export Dashboard HTML */}
             <button
-              onClick={() => setShowExportMenu(!showExportMenu)}
-              className="btn-ghost flex items-center gap-1.5 text-xs"
-              title="Export Notebook"
+              onClick={exportDashboard}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-text-muted hover:text-text-primary bg-surface-muted/40 hover:bg-surface-muted border border-surface-border/50 hover:border-surface-border rounded-xl transition-all"
+              title="Export dashboard as standalone HTML (no nav bar)"
             >
-              <Download className="w-4 h-4" />
-              <span className="hidden sm:inline text-[11px] font-medium text-text-muted">Export</span>
-              <ChevronDown className={`w-3 h-3 transition-transform ${showExportMenu ? 'rotate-180' : ''}`} />
+              <FileDown className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Export Dashboard</span>
             </button>
-            {showExportMenu && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)} />
-                <div className="absolute right-0 mt-2 w-48 rounded-xl border border-surface-border bg-surface-card shadow-card py-2 z-50 animate-in slide-in-from-top-2">
-                  <button
-                    onClick={() => { exportNotebook('json'); setShowExportMenu(false); }}
-                    className="w-full text-left px-4 py-2 text-xs text-text-primary hover:bg-surface-muted transition-colors flex items-center justify-between"
-                  >
-                    <span>As JSON Document</span>
-                    <span className="text-[9px] font-mono text-text-muted">.json</span>
-                  </button>
-                  <button
-                    onClick={() => { exportNotebook('sql'); setShowExportMenu(false); }}
-                    className="w-full text-left px-4 py-2 text-xs text-text-primary hover:bg-surface-muted transition-colors flex items-center justify-between"
-                  >
-                    <span>As SQL Script</span>
-                    <span className="text-[9px] font-mono text-text-muted">.sql</span>
-                  </button>
-                  <button
-                    onClick={() => { exportNotebook('html'); setShowExportMenu(false); }}
-                    className="w-full text-left px-4 py-2 text-xs text-text-primary hover:bg-surface-muted transition-colors flex items-center justify-between"
-                  >
-                    <span>Interactive HTML Report</span>
-                    <span className="text-[9px] font-mono text-text-muted">.html</span>
-                  </button>
-                  <button
-                    onClick={() => { exportNotebook('ipynb'); setShowExportMenu(false); }}
-                    className="w-full text-left px-4 py-2 text-xs text-text-primary hover:bg-surface-muted transition-colors flex items-center justify-between"
-                  >
-                    <span>Jupyter Notebook</span>
-                    <span className="text-[9px] font-mono text-text-muted">.ipynb</span>
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
 
-          <button
-            onClick={() => addCell()}
-            className="btn-primary"
-          >
-            <Plus className="w-4 h-4" />
-            New Insight
-          </button>
+            {/* Present toggle */}
+            <button
+              onClick={() => setDashboardMode(false)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold bg-accent/20 text-accent border border-accent/30 hover:bg-accent/30 rounded-xl transition-all"
+              title="Exit Presentation Mode"
+            >
+              <Presentation className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Exit Present</span>
+            </button>
+          </div>
         </div>
-      </div>
+      ) : (
+        /* ── NORMAL MODE NAV — full toolbar ── */
+        <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border glass sticky top-0 z-20">
+          <TabsList />
+          
+          <div className="flex items-center gap-3">
+            <LlmSettingsPanel />
+            <button
+              onClick={() => setShowNichePlanner(true)}
+              className="btn-ghost flex items-center gap-1.5 text-xs text-accent hover:bg-accent/10 border border-accent/25 hover:border-accent/40 transition-all rounded-xl px-3 py-1.5"
+              title="AI Storytelling Planner"
+            >
+              <Sparkles className="w-4 h-4 text-accent animate-pulse" />
+              <span className="hidden sm:inline text-[11px] font-bold text-accent">Niche Planner</span>
+            </button>
+            <button
+              onClick={() => setDashboardMode(true)}
+              className="btn-ghost flex items-center gap-1.5 text-xs transition-all"
+              title="Enter Presentation Mode"
+            >
+              <Presentation className="w-4 h-4" />
+              <span className="hidden sm:inline text-[11px] font-medium text-text-muted">Present</span>
+            </button>
+            <button
+              onClick={onOpenSearch}
+              className="btn-ghost flex items-center gap-1.5 text-xs"
+              title="Search cells (Cmd+F)"
+            >
+              <Search className="w-4 h-4" />
+              <span className="hidden sm:inline text-[11px] font-medium text-text-muted">Search</span>
+              <kbd className="hidden sm:inline text-[9px] font-mono bg-surface-muted text-text-muted px-1 py-0.5 rounded border border-surface-border ml-0.5">⌘F</kbd>
+            </button>
+            
+            <div className="relative">
+              <button
+                onClick={() => setShowExportMenu(!showExportMenu)}
+                className="btn-ghost flex items-center gap-1.5 text-xs"
+                title="Export Notebook"
+              >
+                <Download className="w-4 h-4" />
+                <span className="hidden sm:inline text-[11px] font-medium text-text-muted">Export</span>
+                <ChevronDown className={`w-3 h-3 transition-transform ${showExportMenu ? 'rotate-180' : ''}`} />
+              </button>
+              {showExportMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)} />
+                  <div className="absolute right-0 mt-2 w-48 rounded-xl border border-surface-border bg-surface-card shadow-card py-2 z-50 animate-in slide-in-from-top-2">
+                    <button
+                      onClick={() => { exportNotebook('json'); setShowExportMenu(false); }}
+                      className="w-full text-left px-4 py-2 text-xs text-text-primary hover:bg-surface-muted transition-colors flex items-center justify-between"
+                    >
+                      <span>As JSON Document</span>
+                      <span className="text-[9px] font-mono text-text-muted">.json</span>
+                    </button>
+                    <button
+                      onClick={() => { exportNotebook('sql'); setShowExportMenu(false); }}
+                      className="w-full text-left px-4 py-2 text-xs text-text-primary hover:bg-surface-muted transition-colors flex items-center justify-between"
+                    >
+                      <span>As SQL Script</span>
+                      <span className="text-[9px] font-mono text-text-muted">.sql</span>
+                    </button>
+                    <button
+                      onClick={() => { exportNotebook('html'); setShowExportMenu(false); }}
+                      className="w-full text-left px-4 py-2 text-xs text-text-primary hover:bg-surface-muted transition-colors flex items-center justify-between"
+                    >
+                      <span>Interactive HTML Report</span>
+                      <span className="text-[9px] font-mono text-text-muted">.html</span>
+                    </button>
+                    <button
+                      onClick={() => { exportNotebook('ipynb'); setShowExportMenu(false); }}
+                      className="w-full text-left px-4 py-2 text-xs text-text-primary hover:bg-surface-muted transition-colors flex items-center justify-between"
+                    >
+                      <span>Jupyter Notebook</span>
+                      <span className="text-[9px] font-mono text-text-muted">.ipynb</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <button
+              onClick={() => addCell()}
+              className="btn-primary"
+            >
+              <Plus className="w-4 h-4" />
+              New Insight
+            </button>
+          </div>
+        </div>
+      )}
+
 
       {/* KPI Header & Cells List */}
       {dashboardMode && (

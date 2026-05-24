@@ -7,6 +7,7 @@ import SchemaDiagram from './components/viz/SchemaDiagram';
 import NewConnModal from './components/sidebar/NewConnModal';
 import ToastContainer from './components/shared/Toast';
 import SettingsModal from './components/shared/SettingsModal';
+import NichePlannerModal from './components/shared/NichePlannerModal';
 import { useAppStore } from './store/useAppStore';
 
 export default function App() {
@@ -18,6 +19,8 @@ export default function App() {
   const setShowConnModal = useAppStore(s => s.setShowConnModal);
   const showSettingsModal = useAppStore(s => s.showSettingsModal);
   const setShowSettingsModal = useAppStore(s => s.setShowSettingsModal);
+  const showNichePlanner = useAppStore(s => s.showNichePlanner);
+  const setShowNichePlanner = useAppStore(s => s.setShowNichePlanner);
   const appTheme = useAppStore(s => s.appTheme);
   const uiStyle = useAppStore(s => s.uiStyle);
   const notebooks = useAppStore(s => s.notebooks);
@@ -34,6 +37,11 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-ui-style', uiStyle);
   }, [uiStyle]);
+
+  // Re-establish active database connection on app mount
+  useEffect(() => {
+    useAppStore.getState().reconnectActiveConnection();
+  }, []);
 
   const resizeSidebar = useCallback((delta: number) => {
     setSidebarWidth(w => Math.max(220, Math.min(450, w + delta)));
@@ -228,6 +236,10 @@ export default function App() {
         {/* Settings Modal */}
         {showSettingsModal && (
           <SettingsModal onClose={() => setShowSettingsModal(false)} />
+        )}
+        {/* Niche Planner Modal */}
+        {showNichePlanner && (
+          <NichePlannerModal onClose={() => setShowNichePlanner(false)} />
         )}
       </main>
       <ToastContainer />

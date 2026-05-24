@@ -186,3 +186,29 @@ export async function apiTerminateSession(pid: number): Promise<{ status: string
   return res.json();
 }
 
+export interface NicheQuery {
+  title: string;
+  question: string;
+  sql: string;
+  viz: 'bar' | 'line' | 'scatter' | 'pie' | 'area' | 'bubble' | 'pivot';
+}
+
+export interface StorytellingNiche {
+  name: string;
+  description: string;
+  queries: NicheQuery[];
+}
+
+export async function apiPlanNiches(schema: unknown, context: string = ""): Promise<{ niches: StorytellingNiche[] }> {
+  const res = await fetch(`${BASE}/api/planner/niches`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ db_schema: schema, context }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to plan niches' }));
+    throw new Error(err.detail ?? 'Failed to plan niches');
+  }
+  return res.json();
+}
+

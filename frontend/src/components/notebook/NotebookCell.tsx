@@ -378,6 +378,14 @@ export default function NotebookCellComponent({ cell, index }: Props) {
     if (!isEditingName) setNameInput(cell.name || '');
   }, [cell.name, isEditingName]);
 
+  // Trigger running query if flagged to run on mount (e.g. added from Niche Planner)
+  useEffect(() => {
+    if (cell.runOnMount) {
+      updateCell(cell.id, { runOnMount: false });
+      runQuery(cell.sql);
+    }
+  }, [cell.runOnMount, cell.id, cell.sql]);
+
   const runQuery = async (queryToRun = cell.sql) => {
     clearAgentLog(cell.id);
     updateCell(cell.id, { agentStatus: 'verifying', queryResult: null, insights: null });
@@ -403,9 +411,43 @@ export default function NotebookCellComponent({ cell, index }: Props) {
       const latest = history[history.length - 1];
       const newHistory = queryToRun.trim() && queryToRun !== latest ? [...history, queryToRun] : history;
 
+      // Auto-detect best visualization type on first query run if it defaults to 'bar'
+      let suggestedViz = cell.vizType ?? 'bar';
+      if (!cell.queryResult && cell.vizType === 'bar' && data.columns && data.rows && data.rows.length > 0) {
+        const cols = data.columns;
+        const sampleRows = data.rows.slice(0, 10);
+        const numericCols = cols.filter(c => sampleRows.every(r => r[c] !== null && r[c] !== undefined && !isNaN(Number(r[c]))));
+        const dateCols = cols.filter(c => {
+          return sampleRows.every(r => {
+            const val = String(r[c]);
+            return val && (
+              /^\d{4}-\d{2}-\d{2}/.test(val) || 
+              (!isNaN(Date.parse(val)) && isNaN(Number(val)))
+            );
+          });
+        });
+        const categoricalCols = cols.filter(c => !numericCols.includes(c));
+        
+        if (dateCols.length > 0 && numericCols.length > 0) {
+          suggestedViz = 'line';
+        } else if (categoricalCols.length > 0 && numericCols.length > 0) {
+          const firstCatCol = categoricalCols[0];
+          const uniqueVals = new Set(data.rows.slice(0, 50).map(r => String(r[firstCatCol])));
+          if (uniqueVals.size >= 2 && uniqueVals.size <= 8) {
+            suggestedViz = 'pie';
+          } else {
+            suggestedViz = 'bar';
+          }
+        } else if (numericCols.length >= 2) {
+          suggestedViz = 'scatter';
+        }
+      }
+
       updateCell(cell.id, {
         agentStatus: 'done',
         showViz: true,
+        viewMode: 'chart',
+        vizType: suggestedViz,
         sqlHistory: newHistory,
         queryResult: {
           columns: data.columns,
