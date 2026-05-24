@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Search, BookOpen, Download, ChevronDown, X } from 'lucide-react';
+import { Plus, Search, BookOpen, Download, ChevronDown, X, Presentation } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import NotebookCellComponent from './NotebookCell';
 import LlmSettingsPanel from '../shared/LlmSettingsPanel';
@@ -10,6 +10,15 @@ export default function Notebook({ onOpenSearch }: { onOpenSearch?: () => void }
   const activeNotebook = notebooks.find(n => n.id === activeNotebookId) || notebooks[0];
   const cells = activeNotebook.cells;
 
+  // Executive Metrics computation for Storytelling Dashboard
+  const totalInsightsCount = cells.filter(c => !!c.insights).length;
+  const totalVisualizationsCount = cells.filter(c => c.showViz || c.viewMode === 'chart').length;
+  const totalSuccessCount = cells.filter(c => c.queryResult && !c.lastActiveError).length;
+  const activeConnection = useAppStore(s => {
+    const conn = s.connections.find(c => c.id === s.activeConnectionId);
+    return conn ? conn.dialect.toUpperCase() : 'None';
+  });
+
   const addNotebook = useAppStore(s => s.addNotebook);
   const removeNotebook = useAppStore(s => s.removeNotebook);
   const setActiveNotebook = useAppStore(s => s.setActiveNotebook);
@@ -18,6 +27,8 @@ export default function Notebook({ onOpenSearch }: { onOpenSearch?: () => void }
   const addCell = useAppStore(s => s.addCell);
   const moveCell = useAppStore(s => s.moveCell);
   const exportNotebook = useAppStore(s => s.exportNotebook);
+  const dashboardMode = useAppStore(s => s.dashboardMode);
+  const setDashboardMode = useAppStore(s => s.setDashboardMode);
 
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editingTabName, setEditingTabName] = useState('');
@@ -139,6 +150,14 @@ export default function Notebook({ onOpenSearch }: { onOpenSearch?: () => void }
         <div className="flex items-center gap-3">
           <LlmSettingsPanel />
           <button
+            onClick={() => setDashboardMode(!dashboardMode)}
+            className={`btn-ghost flex items-center gap-1.5 text-xs transition-all ${dashboardMode ? 'bg-accent/20 text-accent border border-accent/20' : ''}`}
+            title={dashboardMode ? "Exit Presentation Mode" : "Enter Presentation Mode"}
+          >
+            <Presentation className="w-4 h-4" />
+            <span className="hidden sm:inline text-[11px] font-medium text-text-muted">Present</span>
+          </button>
+          <button
             onClick={onOpenSearch}
             className="btn-ghost flex items-center gap-1.5 text-xs"
             title="Search cells (Cmd+F)"
@@ -196,7 +215,7 @@ export default function Notebook({ onOpenSearch }: { onOpenSearch?: () => void }
           </div>
 
           <button
-            onClick={addCell}
+            onClick={() => addCell()}
             className="btn-primary"
           >
             <Plus className="w-4 h-4" />
@@ -205,60 +224,137 @@ export default function Notebook({ onOpenSearch }: { onOpenSearch?: () => void }
         </div>
       </div>
 
-      {/* Cells List — centered in remaining viewport space */}
-      <div className="flex flex-col flex-1 items-center justify-center py-8 px-4">
-        <div className="flex flex-col gap-6 max-w-[95%] w-full">
-          {cells.map((cell, idx) => (
-            <div
-              key={cell.id}
-              data-cell-id={cell.id}
-              className="relative"
-              draggable={activeDragId === cell.id}
-              onMouseDown={(e) => {
-                const target = e.target as HTMLElement;
-                if (e.altKey || target.closest('[data-drag-handle]')) {
-                  setActiveDragId(cell.id);
-                } else {
-                  setActiveDragId(null);
-                }
-              }}
-              onMouseUp={() => setActiveDragId(null)}
-              onDragStart={(e) => handleDragStart(e, cell.id)}
-              onDragOver={(e) => handleDragOver(e, cell.id)}
-              onDragLeave={(e) => handleDragLeave(e, cell.id)}
-              onDrop={(e) => handleDrop(e, cell.id)}
-              onDragEnd={handleDragEnd}
-            >
-              {/* Drop Indicator - Before */}
-              {dragOverId === cell.id && dragPosition === 'before' && (
-                <div className="absolute -top-3 left-0 right-0 h-1 bg-accent rounded-full shadow-[0_0_8px_rgba(var(--color-accent),0.5)] z-50 pointer-events-none" />
-              )}
+      {/* KPI Header & Cells List */}
+      {dashboardMode && (
+        <div className="w-full max-w-[95%] mx-auto mt-6 mb-2 px-4 animate-in fade-in duration-300">
+          <div className="glass rounded-3xl p-8 border border-surface-border/60 shadow-xl flex flex-col xl:flex-row xl:items-center justify-between gap-6 relative overflow-hidden bg-gradient-to-br from-surface-card/60 via-surface-card/25 to-transparent">
+            {/* Ambient Background Glow */}
+            <div className="absolute top-[-20%] right-[-10%] w-64 h-64 bg-accent/10 rounded-full blur-[80px] pointer-events-none" />
+            
+            <div className="flex flex-col gap-2 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] font-bold text-accent uppercase tracking-widest bg-accent/10 px-3 py-1 rounded-full border border-accent/20">
+                  Executive Briefing
+                </span>
+                {activeConnection !== 'NONE' && (
+                  <span className="text-[9px] font-bold text-success uppercase tracking-widest bg-success/10 px-3 py-1 rounded-full border border-success/20">
+                    Live DB: {activeConnection}
+                  </span>
+                )}
+              </div>
+              <h1 className="text-3xl font-extrabold text-text-primary tracking-tight mt-2">
+                {activeNotebook.name}
+              </h1>
+              <p className="text-xs text-text-secondary max-w-2xl font-medium leading-relaxed mt-1">
+                A high-fidelity reporting dashboard synthesized from your analysis notebook cells, matching storytelling narratives alongside key interactive data visualizations.
+              </p>
+            </div>
+
+            {/* KPI Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-3 gap-4 w-full xl:w-auto xl:min-w-[45%] shrink-0">
+              <div className="glass border border-surface-border/50 rounded-2xl p-4 flex flex-col gap-1 hover:border-accent/20 transition-all">
+                <span className="text-[9px] font-bold text-text-muted uppercase tracking-widest">Key Insights</span>
+                <div className="flex items-baseline gap-1 mt-1">
+                  <span className="text-2xl font-black text-text-primary">{totalInsightsCount}</span>
+                  <span className="text-[10px] font-semibold text-text-muted ml-1">narratives</span>
+                </div>
+              </div>
               
-              <div className={`${draggedId === cell.id ? 'opacity-30 scale-[0.98]' : 'opacity-100 scale-100'} transition-all duration-200`}>
-                <NotebookCellComponent 
-                  cell={cell} 
-                  index={idx}
-                  isLast={idx === cells.length - 1}
-                />
+              <div className="glass border border-surface-border/50 rounded-2xl p-4 flex flex-col gap-1 hover:border-accent/20 transition-all">
+                <span className="text-[9px] font-bold text-text-muted uppercase tracking-widest">Visualizations</span>
+                <div className="flex items-baseline gap-1 mt-1">
+                  <span className="text-2xl font-black text-text-primary">{totalVisualizationsCount}</span>
+                  <span className="text-[10px] font-semibold text-text-muted ml-1">charts</span>
+                </div>
               </div>
 
-              {/* Drop Indicator - After */}
-              {dragOverId === cell.id && dragPosition === 'after' && (
-                <div className="absolute -bottom-3 left-0 right-0 h-1 bg-accent rounded-full shadow-[0_0_8px_rgba(var(--color-accent),0.5)] z-50 pointer-events-none" />
-              )}
+              <div className="glass border border-surface-border/50 rounded-2xl p-4 flex flex-col gap-1 hover:border-accent/20 transition-all col-span-2 md:col-span-1">
+                <span className="text-[9px] font-bold text-text-muted uppercase tracking-widest">Success Rate</span>
+                <div className="flex items-baseline gap-1 mt-1">
+                  <span className="text-2xl font-black text-success">
+                    {cells.length > 0 ? Math.round((totalSuccessCount / cells.length) * 100) : 0}%
+                  </span>
+                  <span className="text-[10px] font-semibold text-text-muted ml-1">queries</span>
+                </div>
+              </div>
             </div>
-          ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col flex-1 items-center justify-center py-6 px-4">
+        <div className={dashboardMode 
+          ? "grid grid-cols-1 lg:grid-cols-12 gap-8 max-w-[95%] w-full" 
+          : "flex flex-col gap-6 max-w-[95%] w-full"
+        }>
+          {cells.map((cell, idx) => {
+            let colSpanClass = "";
+            if (dashboardMode) {
+              const isTableOrPivot = cell.viewMode === 'table' || cell.viewMode === 'pivot';
+              const hasManyCols = cell.queryResult?.columns && cell.queryResult.columns.length > 4;
+              
+              if (isTableOrPivot && hasManyCols) {
+                colSpanClass = "lg:col-span-12";
+              } else {
+                colSpanClass = "lg:col-span-6";
+              }
+            }
+
+            return (
+              <div
+                key={cell.id}
+                data-cell-id={cell.id}
+                className={`relative ${colSpanClass}`}
+                draggable={!dashboardMode && activeDragId === cell.id}
+                onMouseDown={(e) => {
+                  if (dashboardMode) return;
+                  const target = e.target as HTMLElement;
+                  if (e.altKey || target.closest('[data-drag-handle]')) {
+                    setActiveDragId(cell.id);
+                  } else {
+                    setActiveDragId(null);
+                  }
+                }}
+                onMouseUp={() => { if (!dashboardMode) setActiveDragId(null); }}
+                onDragStart={(e) => { if (!dashboardMode) handleDragStart(e, cell.id); }}
+                onDragOver={(e) => { if (!dashboardMode) handleDragOver(e, cell.id); }}
+                onDragLeave={(e) => { if (!dashboardMode) handleDragLeave(e, cell.id); }}
+                onDrop={(e) => { if (!dashboardMode) handleDrop(e, cell.id); }}
+                onDragEnd={handleDragEnd}
+              >
+                {/* Drop Indicator - Before */}
+                {!dashboardMode && dragOverId === cell.id && dragPosition === 'before' && (
+                  <div className="absolute -top-3 left-0 right-0 h-1 bg-accent rounded-full shadow-[0_0_8px_rgba(var(--color-accent),0.5)] z-50 pointer-events-none" />
+                )}
+                
+                <div className={`${!dashboardMode && draggedId === cell.id ? 'opacity-30 scale-[0.98]' : 'opacity-100 scale-100'} transition-all duration-200`}>
+                  <NotebookCellComponent 
+                    cell={cell} 
+                    index={idx}
+                    isLast={idx === cells.length - 1}
+                  />
+                </div>
+
+                {/* Drop Indicator - After */}
+                {!dashboardMode && dragOverId === cell.id && dragPosition === 'after' && (
+                  <div className="absolute -bottom-3 left-0 right-0 h-1 bg-accent rounded-full shadow-[0_0_8px_rgba(var(--color-accent),0.5)] z-50 pointer-events-none" />
+                )}
+              </div>
+            );
+          })}
           
           {/* Add button at the bottom */}
-          <button
-            onClick={addCell}
-            className="group flex items-center justify-center gap-2 py-4 border border-dashed border-surface-border/60 rounded-2xl hover:border-accent/40 hover:bg-accent-dim/5 transition-all duration-300"
-          >
-            <div className="p-1.5 bg-surface-muted rounded-full group-hover:scale-110 group-hover:bg-accent/20 transition-all">
-              <Plus className="w-4 h-4 text-text-muted group-hover:text-accent" />
-            </div>
-            <span className="text-xs font-medium text-text-muted group-hover:text-text-secondary">Add another analysis cell</span>
-          </button>
+          {!dashboardMode && (
+            <button
+              onClick={() => addCell()}
+              className="group flex items-center justify-center gap-2 py-4 border border-dashed border-surface-border/60 rounded-2xl hover:border-accent/40 hover:bg-accent-dim/5 transition-all duration-300"
+            >
+              <div className="p-1.5 bg-surface-muted rounded-full group-hover:scale-110 group-hover:bg-accent/20 transition-all">
+                <Plus className="w-4 h-4 text-text-muted group-hover:text-accent" />
+              </div>
+              <span className="text-xs font-medium text-text-muted group-hover:text-text-secondary">Add another analysis cell</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

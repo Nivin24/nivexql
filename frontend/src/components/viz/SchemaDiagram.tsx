@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
+import { Search } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import type { SchemaTable } from '../../store/useAppStore';
 
@@ -99,22 +100,28 @@ function getInferredLinks(schema: SchemaTable[], realLinks: Link[]): Link[] {
 export default function SchemaDiagram() {
   const schema = useAppStore(s => s.schema);
   const appTheme = useAppStore(s => s.appTheme);
+  const addCell = useAppStore(s => s.addCell);
+  const setShowSchemaDiagram = useAppStore(s => s.setShowSchemaDiagram);
+
+  const [diagramSearch, setDiagramSearch] = useState('');
+
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const isLight = appTheme === 'light';
+  const isCosmic = appTheme === 'cosmic';
   const c = {
-    bg:          isLight ? '#f0f4ff' : '#0a0e1a',
-    card:        isLight ? '#ffffff' : '#161b2c',
-    header:      isLight ? '#e4eaf8' : '#1e2a45',
-    border:      isLight ? '#c8d3ef' : '#2a3454',
+    bg:          isLight ? '#f0f4ff' : (isCosmic ? '#000000' : '#0a0e1a'),
+    card:        isLight ? '#ffffff' : (isCosmic ? '#030514' : '#161b2c'),
+    header:      isLight ? '#e4eaf8' : (isCosmic ? '#0c1033' : '#1e2a45'),
+    border:      isLight ? '#c8d3ef' : (isCosmic ? '#172054' : '#2a3454'),
     textPrimary: isLight ? '#0f172a' : '#e8edf8',
     textMuted:   isLight ? '#5c6e98' : '#8b9cc4',
     textType:    isLight ? '#9ba8c8' : '#4e5e87',
-    accent:      isLight ? '#4a6ef5' : '#6c8dfa',
+    accent:      isLight ? '#4a6ef5' : (isCosmic ? '#6c8dfa' : '#6c8dfa'),
     pkColor:     '#fbbf24',
-    realLine:    isLight ? '#4a6ef5' : '#6c8dfa',   // solid, accent
-    inferLine:   isLight ? '#94a3c4' : '#3a4a72',   // dashed, muted
+    realLine:    isLight ? '#4a6ef5' : (isCosmic ? '#6c8dfa' : '#6c8dfa'),   // solid, accent
+    inferLine:   isLight ? '#94a3c4' : (isCosmic ? '#182261' : '#3a4a72'),   // dashed, muted
   };
 
   useEffect(() => {
@@ -153,12 +160,18 @@ export default function SchemaDiagram() {
     const headerH     = 34;
     const COLS        = Math.min(4, schema.length);
 
-    const nodes = schema.map((t, i) => ({
-      id: t.name,
-      x: (i % COLS) * 280 + 60,
-      y: Math.floor(i / COLS) * 340 + 60,
-      table: t,
-    }));
+    const nodes = schema.map((t, i) => {
+      const isMatched = !diagramSearch || 
+        t.name.toLowerCase().includes(diagramSearch.toLowerCase()) ||
+        t.columns.some(col => col.name.toLowerCase().includes(diagramSearch.toLowerCase()));
+      return {
+        id: t.name,
+        x: (i % COLS) * 280 + 60,
+        y: Math.floor(i / COLS) * 340 + 60,
+        table: t,
+        isMatched,
+      };
+    });
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
 
     // Compute all links
@@ -186,13 +199,17 @@ export default function SchemaDiagram() {
         const y2 = toNode.y + headerH + toColIdx * rowHeight + rowHeight / 2;
         const mx = (x1 + x2) / 2;
 
+        const bothMatched = fromNode.isMatched && toNode.isMatched;
+
         linkLayer.append('path')
+          .datum(link)
+          .attr('class', 'schema-link')
           .attr('d', `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`)
           .attr('fill', 'none')
           .attr('stroke', link.kind === 'real' ? c.realLine : c.inferLine)
           .attr('stroke-width', link.kind === 'real' ? 2 : 1.2)
           .attr('stroke-dasharray', link.kind === 'real' ? 'none' : '6,4')
-          .attr('opacity',  link.kind === 'real' ? 0.85 : 0.5)
+          .attr('opacity',  link.kind === 'real' ? (bothMatched ? 0.85 : 0.15) : (bothMatched ? 0.5 : 0.08))
           .attr('marker-end', `url(#arrow-${link.kind})`);
       });
     };
@@ -204,7 +221,68 @@ export default function SchemaDiagram() {
       .data(nodes)
       .join('g')
       .attr('class', 'table-node cursor-move')
+      .attr('opacity', d => d.isMatched ? 1.0 : 0.2)
       .attr('transform', d => `translate(${d.x},${d.y})`)
+      .on('mouseover', function(_event, d) {
+        if (!d.isMatched) return;
+        d3.selectAll('.schema-link')
+          .transition().duration(150)
+          .attr('stroke', l => {
+            const link = l as any;
+            if (link.fromTable === d.id || link.toTable === d.id) {
+              return '#38bdf8';
+            }
+            return link.kind === 'real' ? c.realLine : c.inferLine;
+          })
+          .attr('stroke-width', l => {
+            const link = l as any;
+            if (link.fromTable === d.id || link.toTable === d.id) {
+              return 3.5;
+            }
+            return link.kind === 'real' ? 2 : 1.2;
+          })
+          .attr('opacity', l => {
+            const link = l as any;
+            if (link.fromTable === d.id || link.toTable === d.id) {
+              return 1.0;
+            }
+            return 0.1;
+          });
+
+        d3.select(this).select('.card-rect')
+          .transition().duration(150)
+          .attr('stroke', '#38bdf8')
+          .attr('stroke-width', 2.5);
+      })
+      .on('mouseout', function() {
+        d3.selectAll('.schema-link')
+          .transition().duration(150)
+          .attr('stroke', l => {
+            const link = l as any;
+            return link.kind === 'real' ? c.realLine : c.inferLine;
+          })
+          .attr('stroke-width', l => {
+            const link = l as any;
+            return link.kind === 'real' ? 2 : 1.2;
+          })
+          .attr('opacity', l => {
+            const link = l as any;
+            const fromNode = nodeMap.get(link.fromTable);
+            const toNode = nodeMap.get(link.toTable);
+            const bothMatched = (fromNode?.isMatched && toNode?.isMatched);
+            return link.kind === 'real' ? (bothMatched ? 0.85 : 0.15) : (bothMatched ? 0.5 : 0.08);
+          });
+
+        d3.select(this).select('.card-rect')
+          .transition().duration(150)
+          .attr('stroke', c.border)
+          .attr('stroke-width', 1.5);
+      })
+      .on('dblclick', function(event, d) {
+        event.stopPropagation();
+        setShowSchemaDiagram(false);
+        addCell(`SELECT * FROM ${d.id} LIMIT 10;`, `Query ${d.id}`);
+      })
       .call(d3.drag<SVGGElement, typeof nodes[0]>()
         .on('drag', function(event, d) {
           d.x = event.x;
@@ -215,6 +293,7 @@ export default function SchemaDiagram() {
 
     // Card background
     nodeGroups.append('rect')
+      .attr('class', 'card-rect')
       .attr('width', cardWidth)
       .attr('height', d => headerH + d.table.columns.length * rowHeight + 10)
       .attr('rx', 8)
@@ -289,11 +368,34 @@ export default function SchemaDiagram() {
 
     // ── No legend in SVG — rendered as fixed HTML overlay below ──────────────
 
-  }, [schema, appTheme]);
+  }, [schema, appTheme, diagramSearch]);
 
   return (
     <div ref={containerRef} className="w-full h-full overflow-hidden relative" style={{ background: c.bg }}>
       <svg ref={svgRef} className="w-full h-full" />
+
+      {/* Floating Search Input Overlay */}
+      <div 
+        className="absolute top-4 right-4 flex items-center bg-surface-card/85 backdrop-blur border border-surface-border rounded-xl px-2.5 py-1.5 focus-within:border-accent/60 focus-within:ring-1 focus-within:ring-accent/30 transition-all shadow-lg max-w-xs"
+        style={{ borderColor: c.border }}
+      >
+        <Search className="w-3.5 h-3.5 text-text-muted mr-2 shrink-0" />
+        <input
+          type="text"
+          placeholder="Search tables or columns..."
+          value={diagramSearch}
+          onChange={e => setDiagramSearch(e.target.value)}
+          className="bg-transparent text-xs text-text-primary focus:outline-none w-48 placeholder:text-text-muted/60 font-medium"
+        />
+        {diagramSearch && (
+          <button
+            onClick={() => setDiagramSearch('')}
+            className="text-text-muted hover:text-text-primary text-[10px] uppercase font-bold shrink-0 ml-1.5 cursor-pointer"
+          >
+            Clear
+          </button>
+        )}
+      </div>
 
       {/* Fixed legend — outside the SVG zoom group so it never moves */}
       <div

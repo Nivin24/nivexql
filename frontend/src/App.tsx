@@ -6,6 +6,7 @@ import ResizeHandle from './components/shared/ResizeHandle';
 import SchemaDiagram from './components/viz/SchemaDiagram';
 import NewConnModal from './components/sidebar/NewConnModal';
 import ToastContainer from './components/shared/Toast';
+import SettingsModal from './components/shared/SettingsModal';
 import { useAppStore } from './store/useAppStore';
 
 export default function App() {
@@ -15,15 +16,24 @@ export default function App() {
   const setShowSchemaDiagram = useAppStore(s => s.setShowSchemaDiagram);
   const showConnModal = useAppStore(s => s.showConnModal);
   const setShowConnModal = useAppStore(s => s.setShowConnModal);
+  const showSettingsModal = useAppStore(s => s.showSettingsModal);
+  const setShowSettingsModal = useAppStore(s => s.setShowSettingsModal);
   const appTheme = useAppStore(s => s.appTheme);
+  const uiStyle = useAppStore(s => s.uiStyle);
   const notebooks = useAppStore(s => s.notebooks);
   const activeNotebookId = useAppStore(s => s.activeNotebookId);
   const cells = notebooks.find(n => n.id === activeNotebookId)?.cells || [];
+  const dashboardMode = useAppStore(s => s.dashboardMode);
 
   // Apply theme to <html> element whenever it changes
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', appTheme);
   }, [appTheme]);
+
+  // Apply UI style to <html> element whenever it changes
+  useEffect(() => {
+    document.documentElement.setAttribute('data-ui-style', uiStyle);
+  }, [uiStyle]);
 
   const resizeSidebar = useCallback((delta: number) => {
     setSidebarWidth(w => Math.max(220, Math.min(450, w + delta)));
@@ -120,16 +130,22 @@ export default function App() {
   return (
     <div className="flex w-screen h-screen overflow-hidden bg-surface-base">
       {/* Sidebar */}
-      <Sidebar width={sidebarWidth} />
+      {!dashboardMode && <Sidebar width={sidebarWidth} />}
 
       {/* Horizontal resize handle */}
-      <ResizeHandle direction="horizontal" onResize={resizeSidebar} />
+      {!dashboardMode && <ResizeHandle direction="horizontal" onResize={resizeSidebar} />}
 
       {/* Main content area (Notebook) */}
       <main className="flex-1 min-w-0 h-full overflow-hidden relative">
         {/* Background glow effects */}
-        <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-accent/5 rounded-full blur-[120px] pointer-events-none" />
-        <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-success/5 rounded-full blur-[120px] pointer-events-none" />
+        {appTheme === 'cosmic' ? (
+          <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-[#111847]/20 rounded-full blur-[140px] pointer-events-none" />
+        ) : (
+          <>
+            <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-accent/5 rounded-full blur-[120px] pointer-events-none" />
+            <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-success/5 rounded-full blur-[120px] pointer-events-none" />
+          </>
+        )}
 
         <Notebook onOpenSearch={() => setShowSearch(true)} />
 
@@ -209,8 +225,50 @@ export default function App() {
             </div>
           </div>
         )}
+        {/* Settings Modal */}
+        {showSettingsModal && (
+          <SettingsModal onClose={() => setShowSettingsModal(false)} />
+        )}
       </main>
       <ToastContainer />
+
+      {/* Global SVG Filters for Liquid Glass Theme */}
+      <svg className="hidden">
+        <defs>
+          <filter
+            id="container-glass"
+            x="-10%"
+            y="-10%"
+            width="120%"
+            height="120%"
+            colorInterpolationFilters="sRGB"
+          >
+            {/* Generate turbulent noise for distortion */}
+            <feTurbulence
+              type="fractalNoise"
+              baseFrequency="0.04 0.04"
+              numOctaves="1"
+              seed="1"
+              result="turbulence"
+            />
+            {/* Blur the turbulence pattern slightly */}
+            <feGaussianBlur in="turbulence" stdDeviation="2" result="blurredNoise" />
+            {/* Displace the source graphic with the noise */}
+            <feDisplacementMap
+              in="SourceGraphic"
+              in2="blurredNoise"
+              scale="15"
+              xChannelSelector="R"
+              yChannelSelector="B"
+              result="displaced"
+            />
+            {/* Apply overall blur on the final result */}
+            <feGaussianBlur in="displaced" stdDeviation="3" result="finalBlur" />
+            {/* Output the result */}
+            <feComposite in="finalBlur" in2="finalBlur" operator="over" />
+          </filter>
+        </defs>
+      </svg>
     </div>
   );
 }

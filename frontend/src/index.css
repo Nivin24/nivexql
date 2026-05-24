@@ -70,6 +70,100 @@ html[data-theme="light"] .d3-tooltip {
   color: #0f172a;
 }
 
+/* ── Cosmic Theme Overrides ──────────────────────────────── */
+html[data-theme="cosmic"] {
+  --color-surface-base:   #000000;
+  --color-surface-card:   #030514;
+  --color-surface-border: #172054;
+  --color-surface-muted:  #0c1033;
+  --color-surface-hover:  #182261;
+
+  --color-accent:         #6c8dfa;
+  --color-accent-hover:   #8aa5fc;
+  --color-accent-glow:    rgba(108, 141, 250, 0.25);
+  --color-accent-dim:     rgba(108, 141, 250, 0.12);
+
+  --color-text-primary:   #e8edf8;
+  --color-text-secondary: #8b9cc4;
+  --color-text-muted:     #4e5e87;
+
+  --shadow-glow: 0 0 24px rgba(17, 24, 71, 0.4);
+  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.6);
+}
+
+html[data-theme="cosmic"] body,
+html[data-theme="cosmic"] #root {
+  background: linear-gradient(135deg, #000000 0%, #000000 65%, #111847 100%);
+  background-attachment: fixed;
+  color: #e8edf8;
+}
+
+html[data-theme="cosmic"] .glass {
+  background: rgba(3, 5, 20, 0.75) !important;
+  border-color: #172054;
+}
+
+html[data-theme="cosmic"] .bg-surface-base {
+  background-color: transparent;
+}
+
+html[data-theme="cosmic"] .btn-ghost:hover { background: #0c1033; color: #e8edf8; }
+html[data-theme="cosmic"] .scrollbar-thin { scrollbar-color: #172054 transparent; }
+html[data-theme="cosmic"] .scrollbar-thin::-webkit-scrollbar-thumb { background: #172054; }
+html[data-theme="cosmic"] .d3-tooltip {
+  background: #030514;
+  border-color: #172054;
+  color: #e8edf8;
+}
+
+/* ── Liquid Glass UI Theme Overrides ────────────────────── */
+html[data-ui-style="liquid"] .glass {
+  background: rgba(15, 22, 41, 0.45) !important;
+  backdrop-filter: blur(24px) url("#container-glass") !important;
+  -webkit-backdrop-filter: blur(24px) url("#container-glass") !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow: 
+    0 0 1px 1px rgba(255, 255, 255, 0.15) inset,
+    0 8px 32px 0 rgba(0, 0, 0, 0.35) !important;
+  transition: all 0.3s cubic-bezier(0.1, 0.8, 0.25, 1);
+}
+
+html[data-theme="light"][data-ui-style="liquid"] .glass {
+  background: rgba(255, 255, 255, 0.45) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  box-shadow: 
+    0 0 1px 1px rgba(255, 255, 255, 0.35) inset,
+    0 8px 32px 0 rgba(0, 0, 0, 0.08) !important;
+}
+
+html[data-theme="cosmic"][data-ui-style="liquid"] .glass {
+  background: rgba(5, 3, 8, 0.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 
+    0 0 1px 1px rgba(255, 255, 255, 0.1) inset,
+    0 8px 32px 0 rgba(0, 0, 0, 0.55) !important;
+}
+
+/* Liquid button styling */
+html[data-ui-style="liquid"] .btn-primary,
+html[data-ui-style="liquid"] .btn-ghost {
+  border-radius: 9999px;
+  position: relative;
+  overflow: hidden;
+}
+
+html[data-ui-style="liquid"] .btn-primary {
+  background: linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-hover) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 
+    0 1px 2px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+html[data-ui-style="liquid"] .btn-primary:hover {
+  filter: brightness(1.05);
+}
+
 @layer base {
   *, *::before, *::after { box-sizing: border-box; }
 

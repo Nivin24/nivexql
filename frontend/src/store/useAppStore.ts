@@ -61,6 +61,7 @@ export interface NotebookCell {
   chatHistory?: { role: 'user' | 'assistant'; content: string; sql?: string }[];
   lastActiveError?: string;
   previousSql?: string; // For visual diffing when AI corrects SQL
+  sqlHistory?: string[];
 }
 
 export interface NotebookSession {
@@ -76,6 +77,7 @@ interface AppState {
   activeConnectionId: string | null;
   schema: SchemaTable[];
   showConnModal: boolean;
+  showSettingsModal: boolean;
 
   // Notebooks (Tabs)
   notebooks: NotebookSession[];
@@ -95,7 +97,9 @@ interface AppState {
   uiTextSize: 'xs' | 'sm' | 'base' | 'lg';
   editorTheme: string;
   queryHistory: QueryHistoryEntry[];
-  appTheme: 'dark' | 'light';
+  appTheme: 'dark' | 'light' | 'cosmic';
+  uiStyle: 'classic' | 'liquid';
+  dashboardMode: boolean;
 
   // Actions - Connections
   addConnection: (c: ConnectionConfig) => void;
@@ -106,6 +110,7 @@ interface AppState {
   setEditorHeight: (updater: (prev: number) => number) => void;
   setShowSchemaDiagram: (show: boolean) => void;
   setShowConnModal: (show: boolean) => void;
+  setShowSettingsModal: (show: boolean) => void;
 
   // Actions - Notebooks
   addNotebook: () => void;
@@ -114,7 +119,7 @@ interface AppState {
   renameNotebook: (id: string, name: string) => void;
 
   // Actions - Cells (operate on active notebook)
-  addCell: () => void;
+  addCell: (sql?: string, name?: string) => void;
   removeCell: (id: string) => void;
   setActiveCell: (id: string | null) => void;
   updateCell: (id: string, updates: Partial<NotebookCell>) => void;
@@ -132,11 +137,14 @@ interface AppState {
   setLlmConfig: (config: Partial<Pick<AppState, 'llmProvider' | 'llmModel' | 'llmApiKey' | 'llmEndpoint'>>) => void;
   setGlobalContext: (c: string) => void;
   addFavorite: (sql: string) => void;
+  removeFavorite: (sql: string) => void;
   setUiTextSize: (size: 'xs' | 'sm' | 'base' | 'lg') => void;
   setEditorTheme: (id: string) => void;
   addQueryHistory: (entry: Omit<QueryHistoryEntry, 'id' | 'timestamp'>) => void;
   clearQueryHistory: () => void;
-  setAppTheme: (theme: 'dark' | 'light') => void;
+  setAppTheme: (theme: 'dark' | 'light' | 'cosmic') => void;
+  setUiStyle: (style: 'classic' | 'liquid') => void;
+  setDashboardMode: (mode: boolean) => void;
   exportNotebook: (format: 'json' | 'sql' | 'html' | 'ipynb') => void;
 }
 
@@ -153,6 +161,7 @@ const createCell = (): NotebookCell => ({
   viewMode: 'table',
   insights: null,
   isPinned: false,
+  sqlHistory: [],
 });
 
 // Sanitize cells loaded from storage
@@ -182,6 +191,7 @@ export const useAppStore = create<AppState>()(
         activeConnectionId: null,
         schema: [],
         showConnModal: false,
+        showSettingsModal: false,
         
         notebooks: [initialNotebook],
         activeNotebookId: initialNotebook.id,
@@ -200,6 +210,8 @@ export const useAppStore = create<AppState>()(
       editorTheme: 'nvn-dark',
       queryHistory: [],
       appTheme: 'dark',
+      uiStyle: 'classic',
+      dashboardMode: false,
 
       addConnection: (c) => set((s) => ({ connections: [...s.connections, c] })),
       removeConnection: (id) => set((s) => ({
@@ -212,6 +224,7 @@ export const useAppStore = create<AppState>()(
       setEditorHeight: (fn) => set((s) => ({ editorHeight: fn(s.editorHeight) })),
       setShowSchemaDiagram: (showSchemaDiagram) => set({ showSchemaDiagram }),
       setShowConnModal: (showConnModal) => set({ showConnModal }),
+      setShowSettingsModal: (showSettingsModal) => set({ showSettingsModal }),
 
       addNotebook: () => set((s) => {
         const nb = createNotebook(`Analysis ${s.notebooks.length + 1}`);
@@ -230,8 +243,10 @@ export const useAppStore = create<AppState>()(
         notebooks: s.notebooks.map(n => n.id === id ? { ...n, name } : n)
       })),
 
-      addCell: () => set((s) => updateActiveNotebook(s, nb => {
+      addCell: (sql, name) => set((s) => updateActiveNotebook(s, nb => {
         const newCell = createCell();
+        if (sql) newCell.sql = sql;
+        if (name) newCell.name = name;
         return { cells: [...nb.cells, newCell], activeCellId: newCell.id };
       })),
       removeCell: (id) => set((s) => updateActiveNotebook(s, nb => ({
@@ -276,6 +291,9 @@ export const useAppStore = create<AppState>()(
       addFavorite: (sql) => set((s) => ({
         favorites: s.favorites.includes(sql) ? s.favorites : [...s.favorites, sql]
       })),
+      removeFavorite: (sql) => set((s) => ({
+        favorites: s.favorites.filter(x => x !== sql)
+      })),
       setUiTextSize: (uiTextSize) => set({ uiTextSize }),
       setEditorTheme: (editorTheme) => set({ editorTheme }),
       addQueryHistory: (entry) => set((s) => ({
@@ -286,6 +304,8 @@ export const useAppStore = create<AppState>()(
       })),
       clearQueryHistory: () => set({ queryHistory: [] }),
       setAppTheme: (appTheme) => set({ appTheme }),
+      setUiStyle: (uiStyle) => set({ uiStyle }),
+      setDashboardMode: (dashboardMode) => set({ dashboardMode }),
 
       exportNotebook: (format) => {
         const state = get();
@@ -489,6 +509,8 @@ export const useAppStore = create<AppState>()(
         queryHistory: state.queryHistory,
         favorites: state.favorites,
         appTheme: state.appTheme,
+        uiStyle: state.uiStyle,
+        dashboardMode: state.dashboardMode,
       }),
     }
   )

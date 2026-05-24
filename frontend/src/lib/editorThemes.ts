@@ -296,6 +296,38 @@ export const editorThemes: EditorTheme[] = [
       },
     },
   },
+  {
+    id: 'cosmic',
+    label: 'Cosmic Glow',
+    color: '#6c8dfa',
+    definition: {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [
+        { token: 'keyword',    foreground: '818CF8', fontStyle: 'bold' },
+        { token: 'keyword.sql',foreground: '818CF8', fontStyle: 'bold' },
+        { token: 'string',     foreground: '86EFAC' },
+        { token: 'string.sql', foreground: '86EFAC' },
+        { token: 'number',     foreground: 'FDA4AF' },
+        { token: 'comment',    foreground: '4E5E87', fontStyle: 'italic' },
+        { token: 'identifier', foreground: 'E2E8F0' },
+        { token: 'operator',   foreground: '67E8F9' },
+        { token: 'delimiter',  foreground: '94A3B8' },
+        { token: 'type',       foreground: '67E8F9' },
+        { token: 'predefined', foreground: 'C084FC' },
+      ],
+      colors: {
+        'editor.background':              '#050308',
+        'editor.foreground':              '#E2E8F0',
+        'editorLineNumber.foreground':    '#251735',
+        'editorLineNumber.activeForeground': '#6c8dfa',
+        'editor.selectionBackground':     '#12174480',
+        'editor.lineHighlightBackground': '#12174430',
+        'editorCursor.foreground':        '#6c8dfa',
+        'editor.inactiveSelectionBackground': '#12174440',
+      },
+    },
+  },
 ];
 
 export const defaultEditorThemeId = 'nvn-dark';

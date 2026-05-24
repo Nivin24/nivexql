@@ -131,3 +131,58 @@ export async function apiSetLlmConfig(provider: string, endpoint: string, model:
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
+
+export interface InspectorTableStat {
+  table_name: string;
+  total_size: string;
+  table_size: string;
+  index_size: string;
+  row_count: number;
+}
+
+export interface InspectorSession {
+  pid: number;
+  user: string;
+  client: string;
+  start_time: string;
+  state: string;
+  query: string;
+}
+
+export interface InspectorLock {
+  pid: number;
+  user: string;
+  table_name: string;
+  mode: string;
+  granted: boolean;
+  query: string;
+}
+
+export async function apiGetInspectorStats(): Promise<{ stats: InspectorTableStat[] }> {
+  const res = await fetch(`${BASE}/api/inspector/stats`);
+  if (!res.ok) throw new Error('Failed to fetch table stats');
+  return res.json();
+}
+
+export async function apiGetInspectorSessions(): Promise<{ sessions: InspectorSession[] }> {
+  const res = await fetch(`${BASE}/api/inspector/sessions`);
+  if (!res.ok) throw new Error('Failed to fetch sessions');
+  return res.json();
+}
+
+export async function apiGetInspectorLocks(): Promise<{ locks: InspectorLock[] }> {
+  const res = await fetch(`${BASE}/api/inspector/locks`);
+  if (!res.ok) throw new Error('Failed to fetch locks');
+  return res.json();
+}
+
+export async function apiTerminateSession(pid: number): Promise<{ status: string }> {
+  const res = await fetch(`${BASE}/api/inspector/terminate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pid }),
+  });
+  if (!res.ok) throw new Error('Failed to terminate session');
+  return res.json();
+}
+

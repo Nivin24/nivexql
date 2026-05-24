@@ -226,3 +226,178 @@ def execute_query(req: QueryRequest):
     except Exception as e:
         logger.error(f"SQL execution error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/api/inspector/stats")
+def get_inspector_stats():
+    engine = _session.get("engine")
+    dialect = _session.get("dialect")
+    if not engine:
+        raise HTTPException(status_code=400, detail="No database selected")
+    
+    logger.info("Fetching inspector database stats...")
+    try:
+        with engine.connect() as conn:
+            if dialect == "postgresql":
+                sql = """
+                SELECT
+                    relname AS table_name,
+                    pg_size_pretty(pg_total_relation_size(c.oid)) AS total_size,
+                    pg_size_pretty(pg_relation_size(c.oid)) AS table_size,
+                    pg_size_pretty(pg_total_relation_size(c.oid) - pg_relation_size(c.oid)) AS index_size,
+                    reltuples::bigint AS row_count
+                FROM pg_class c
+                LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE nspname = 'public'
+                  AND relkind = 'r'
+                ORDER BY pg_total_relation_size(c.oid) DESC
+                LIMIT 20;
+                """
+                res = conn.execute(text(sql))
+                stats = [dict(zip(res.keys(), row)) for row in res]
+                return {"stats": stats}
+            elif dialect == "mysql":
+                sql = """
+                SELECT 
+                    table_name AS table_name,
+                    ROUND(((data_length + index_length) / 1024 / 1024), 2) AS total_size_mb,
+                    ROUND((data_length / 1024 / 1024), 2) AS table_size_mb,
+                    ROUND((index_length / 1024 / 1024), 2) AS index_size_mb,
+                    table_rows AS row_count
+                FROM information_schema.TABLES
+                WHERE table_schema = DATABASE()
+                ORDER BY (data_length + index_length) DESC;
+                """
+                res = conn.execute(text(sql))
+                raw_stats = [dict(zip(res.keys(), row)) for row in res]
+                stats = []
+                for row in raw_stats:
+                    stats.append({
+                        "table_name": row["table_name"],
+                        "total_size": f"{row['total_size_mb']} MB",
+                        "table_size": f"{row['table_size_mb']} MB",
+                        "index_size": f"{row['index_size_mb']} MB",
+                        "row_count": row["row_count"]
+                    })
+                return {"stats": stats}
+            else: # sqlite
+                inspector = inspect(engine)
+                stats = []
+                for table_name in inspector.get_table_names():
+                    res = conn.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
+                    row_count = res.scalar() or 0
+                    stats.append({
+                        "table_name": table_name,
+                        "total_size": "N/A",
+                        "table_size": "N/A",
+                        "index_size": "N/A",
+                        "row_count": row_count
+                    })
+                return {"stats": stats}
+    except Exception as e:
+        logger.error(f"Error fetching inspector stats: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/api/inspector/sessions")
+def get_inspector_sessions():
+    engine = _session.get("engine")
+    dialect = _session.get("dialect")
+    if not engine:
+        raise HTTPException(status_code=400, detail="No database selected")
+    
+    logger.info("Fetching active database sessions...")
+    try:
+        with engine.connect() as conn:
+            if dialect == "postgresql":
+                sql = """
+                SELECT
+                    pid,
+                    usename AS user,
+                    client_addr AS client,
+                    backend_start::text AS start_time,
+                    state,
+                    query
+                FROM pg_stat_activity
+                WHERE datname = current_database()
+                  AND pid <> pg_backend_pid()
+                ORDER BY backend_start DESC;
+                """
+                res = conn.execute(text(sql))
+                sessions = [dict(zip(res.keys(), row)) for row in res]
+                return {"sessions": sessions}
+            elif dialect == "mysql":
+                sql = "SHOW PROCESSLIST;"
+                res = conn.execute(text(sql))
+                raw_sessions = [dict(zip(res.keys(), row)) for row in res]
+                sessions = []
+                for row in raw_sessions:
+                    sessions.append({
+                        "pid": row.get("Id") or row.get("id"),
+                        "user": row.get("User") or row.get("user"),
+                        "client": row.get("Host") or row.get("host"),
+                        "start_time": f"{row.get('Time') or row.get('time')}s active",
+                        "state": row.get("Command") or row.get("command"),
+                        "query": row.get("Info") or row.get("info") or ""
+                    })
+                return {"sessions": sessions}
+            else: # sqlite
+                return {"sessions": [{"pid": 1, "user": "local", "client": "localhost", "start_time": "N/A", "state": "active", "query": "SQLite single process"}]}
+    except Exception as e:
+        logger.error(f"Error fetching sessions: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/api/inspector/locks")
+def get_inspector_locks():
+    engine = _session.get("engine")
+    dialect = _session.get("dialect")
+    if not engine:
+        raise HTTPException(status_code=400, detail="No database selected")
+    
+    logger.info("Fetching database locks...")
+    try:
+        with engine.connect() as conn:
+            if dialect == "postgresql":
+                sql = """
+                SELECT
+                    a.pid,
+                    a.usename AS user,
+                    l.relation::regclass::text AS table_name,
+                    l.mode,
+                    l.granted,
+                    a.query
+                FROM pg_stat_activity a
+                JOIN pg_locks l ON l.pid = a.pid
+                WHERE a.datname = current_database()
+                  AND l.relation IS NOT NULL
+                ORDER BY a.pid;
+                """
+                res = conn.execute(text(sql))
+                locks = [dict(zip(res.keys(), row)) for row in res]
+                return {"locks": locks}
+            else:
+                return {"locks": []}
+    except Exception as e:
+        logger.error(f"Error fetching locks: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/api/inspector/terminate")
+def terminate_session(pid: int = Body(..., embed=True)):
+    engine = _session.get("engine")
+    dialect = _session.get("dialect")
+    if not engine:
+        raise HTTPException(status_code=400, detail="No database selected")
+    
+    logger.info(f"Terminating database session pid: {pid} for dialect: {dialect}")
+    try:
+        with engine.connect() as conn:
+            if dialect == "postgresql":
+                res = conn.execute(text("SELECT pg_terminate_backend(:pid)"), {"pid": pid})
+                success = res.scalar() or False
+                return {"status": "terminated" if success else "failed"}
+            elif dialect == "mysql":
+                conn.execute(text(f"KILL {pid}"))
+                return {"status": "terminated"}
+            else:
+                return {"status": "unsupported"}
+    except Exception as e:
+        logger.error(f"Error terminating session {pid}: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
