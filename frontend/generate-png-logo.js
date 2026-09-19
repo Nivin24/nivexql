@@ -42,14 +42,14 @@ app.whenReady().then(() => {
     } catch (e) {}
     
     // Ensure build directory exists
-    const buildDir = path.join(__dirname, 'build');
-    if (!fs.existsSync(buildDir)) {
-      fs.mkdirSync(buildDir);
-    }
-    
-    fs.writeFileSync(path.join(buildDir, 'icon.png'), pngBuffer);
-    fs.writeFileSync(path.join(__dirname, 'public/logo.png'), pngBuffer);
-    console.log('Successfully generated logo.png and build/icon.png!');
-    app.quit();
+  const buildDir = path.join(__dirname, 'build');
+  if (!fs.existsSync(buildDir)) {
+    fs.mkdirSync(buildDir);
+  }
+  const newLogoPath = path.join(__dirname, 'public/NewLogo.png');
+  fs.copyFileSync(newLogoPath, path.join(buildDir, 'icon.png'));
+  fs.copyFileSync(newLogoPath, path.join(__dirname, 'public/logo.png'));
+  console.log('Successfully copied NewLogo.png to logo.png and build/icon.png!');
+  app.quit();
   });
 });

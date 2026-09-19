@@ -371,7 +371,7 @@ export default function SchemaDiagram() {
   }, [schema, appTheme, diagramSearch]);
 
   return (
-    <div ref={containerRef} className="w-full h-full overflow-hidden relative" style={{ background: c.bg }}>
+    <div ref={containerRef} className="w-full h-full overflow-hidden relative bg-canvas-dot-grid">
       <svg ref={svgRef} className="w-full h-full" />
 
       {/* Floating Search Input Overlay */}
