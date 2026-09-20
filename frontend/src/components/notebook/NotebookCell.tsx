@@ -7,11 +7,12 @@ import {
 import Editor from '@monaco-editor/react';
 import { format } from 'sql-formatter';
 import { useAppStore, type NotebookCell } from '../../store/useAppStore';
-import { apiQuery, apiGenerateSql, apiFixSql, apiAnalyzeResults, apiGenerateFollowUps } from '../../lib/api';
+import { apiQuery, apiGenerateSql, apiFixSql, apiAnalyzeResults, apiGenerateFollowUps, BASE } from '../../lib/api';
 import { editorThemes } from '../../lib/editorThemes';
 import { toast } from '../shared/Toast';
 import D3Chart from '../viz/D3Chart';
 import PivotTable from '../viz/PivotTable';
+import { recommendChart } from '../../lib/chartRecommendation';
 
 interface DiffLine {
   type: 'added' | 'removed' | 'unchanged';
@@ -72,6 +73,7 @@ export default function NotebookCellComponent({ cell, index }: Props) {
   const globalContext = useAppStore(s => s.globalContext);
   const uiTextSize = useAppStore(s => s.uiTextSize);
   const editorTheme = useAppStore(s => s.editorTheme);
+  const appTheme = useAppStore(s => s.appTheme);
   const setEditorTheme = useAppStore(s => s.setEditorTheme);
   const togglePinCell = useAppStore(s => s.togglePinCell);
   const favorites = useAppStore(s => s.favorites);
@@ -411,36 +413,11 @@ export default function NotebookCellComponent({ cell, index }: Props) {
       const latest = history[history.length - 1];
       const newHistory = queryToRun.trim() && queryToRun !== latest ? [...history, queryToRun] : history;
 
-      // Auto-detect best visualization type on first query run if it defaults to 'bar'
+      // Auto-detect best visualization type using heuristic engine
       let suggestedViz = cell.vizType ?? 'bar';
-      if (!cell.queryResult && cell.vizType === 'bar' && data.columns && data.rows && data.rows.length > 0) {
-        const cols = data.columns;
-        const sampleRows = data.rows.slice(0, 10);
-        const numericCols = cols.filter(c => sampleRows.every(r => r[c] !== null && r[c] !== undefined && !isNaN(Number(r[c]))));
-        const dateCols = cols.filter(c => {
-          return sampleRows.every(r => {
-            const val = String(r[c]);
-            return val && (
-              /^\d{4}-\d{2}-\d{2}/.test(val) || 
-              (!isNaN(Date.parse(val)) && isNaN(Number(val)))
-            );
-          });
-        });
-        const categoricalCols = cols.filter(c => !numericCols.includes(c));
-        
-        if (dateCols.length > 0 && numericCols.length > 0) {
-          suggestedViz = 'line';
-        } else if (categoricalCols.length > 0 && numericCols.length > 0) {
-          const firstCatCol = categoricalCols[0];
-          const uniqueVals = new Set(data.rows.slice(0, 50).map(r => String(r[firstCatCol])));
-          if (uniqueVals.size >= 2 && uniqueVals.size <= 8) {
-            suggestedViz = 'pie';
-          } else {
-            suggestedViz = 'bar';
-          }
-        } else if (numericCols.length >= 2) {
-          suggestedViz = 'scatter';
-        }
+      if (data.columns && data.rows && data.rows.length > 0) {
+        const rec = recommendChart(data.rows, data.columns);
+        suggestedViz = rec.chartType;
       }
 
       updateCell(cell.id, {
@@ -549,7 +526,7 @@ export default function NotebookCellComponent({ cell, index }: Props) {
   const handleExport = async (formatType: 'csv' | 'json') => {
     if (!cell.queryResult) return;
     try {
-      const res = await fetch('http://127.0.0.1:8081/api/export', {
+      const res = await fetch(`${BASE}/api/export`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -669,6 +646,27 @@ export default function NotebookCellComponent({ cell, index }: Props) {
     }
     
     if ((!cell.viewMode && cell.showViz) || cell.viewMode === 'chart') {
+      if (cell.queryResult.rows.length === 1 && cell.queryResult.columns.length <= 2) {
+        const col = cell.queryResult.columns[cell.queryResult.columns.length - 1];
+        const val = cell.queryResult.rows[0][col];
+        const numVal = Number(val);
+        const isNum = !isNaN(numVal) && isFinite(numVal);
+        return (
+          <div className="flex flex-col items-center justify-center h-full p-6 text-center">
+            <div className="text-[11px] font-mono font-bold uppercase tracking-wider text-text-muted mb-1 bg-surface-muted/60 px-3 py-1 rounded-full border border-surface-border/50">
+              {col}
+            </div>
+            <div className="text-4xl sm:text-5xl font-extrabold text-accent font-mono tracking-tight my-2">
+              {isNum ? (Number.isInteger(numVal) ? numVal.toLocaleString() : numVal.toFixed(2)) : String(val ?? '-')}
+            </div>
+            <div className="text-[10px] text-text-muted font-mono flex items-center gap-1 mt-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Single Metric Aggregate KPI Card
+            </div>
+          </div>
+        );
+      }
+
       return (
         <D3Chart 
           data={cell.queryResult.rows} 
@@ -762,49 +760,61 @@ export default function NotebookCellComponent({ cell, index }: Props) {
   };
 
   return (
-    <div className="flex flex-col">
-      {/* Cell Name — centered above card */}
-      <div className="flex items-center justify-center mb-1 h-6">
-        {isEditingName && !dashboardMode ? (
-          <div className="flex items-center gap-1.5 bg-surface-muted border border-accent/40 rounded-lg px-2 py-0.5">
-            <input
-              autoFocus
-              value={nameInput}
-              onChange={e => setNameInput(e.target.value)}
-              onBlur={commitName}
-              onKeyDown={e => { if (e.key === 'Enter') commitName(); if (e.key === 'Escape') setIsEditingName(false); }}
-              className="bg-transparent text-[11px] font-bold text-text-primary focus:outline-none w-48 text-center"
-              placeholder="Give this analysis a name..."
-            />
-            <button onClick={commitName} className="text-success hover:text-success/80 transition-all hover:scale-110"><Check className="w-3.5 h-3.5" /></button>
-          </div>
-        ) : (
-          <button
-            onClick={() => { if (!dashboardMode) { setNameInput(cell.name || ''); setIsEditingName(true); } }}
-            className={`group flex items-center gap-1.5 text-[11px] font-bold text-text-muted transition-all px-3 py-1 rounded-full ${!dashboardMode ? 'hover:bg-surface-muted border border-transparent hover:border-surface-border/50 hover:text-text-secondary cursor-pointer' : 'cursor-default'}`}
-            title={!dashboardMode ? "Click to rename cell" : ""}
-          >
-            <span className={cell.name ? "text-text-secondary" : "text-text-muted italic opacity-60"}>
-              {cell.name || `Analysis Cell ${index + 1}`}
-            </span>
-            {!dashboardMode && <Pencil className="w-2.5 h-2.5 opacity-0 group-hover:opacity-60 transition-opacity" />}
-          </button>
-        )}
-      </div>
-
-      <div className="group glass rounded-2xl overflow-hidden border border-surface-border hover:border-accent/30 transition-all duration-300 shadow-card">
+    <div className={`flex flex-col gap-1.5 transition-all duration-200 ${cell.agentStatus === 'executing' || cell.agentStatus === 'generating' || cell.agentStatus === 'fixing' ? 'ring-1 ring-accent/40 shadow-glow' : ''}`}>
+      <div className={`group card-elevated rounded-2xl overflow-hidden border border-surface-border/60 hover:border-accent/30 transition-all duration-300 shadow-card ${cell.isPinned ? 'border-accent/40 bg-accent/5' : ''}`}>
       {!dashboardMode && (
-        <div className={`flex items-center gap-3 px-4 py-3 bg-surface-card border-b border-surface-border ${cell.isPinned ? 'bg-accent/5' : ''}`}>
-          <div className="flex items-center gap-1">
-            <div data-drag-handle className="cursor-grab active:cursor-grabbing p-1 text-text-muted hover:text-text-primary transition-colors">
-              <GripVertical className="w-4 h-4" />
+        <div className={`flex items-center justify-between gap-3 px-4 py-3 bg-surface-card border-b border-surface-border ${cell.isPinned ? 'bg-accent/5' : ''}`}>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div data-drag-handle className="cursor-grab active:cursor-grabbing p-1 text-text-muted hover:text-text-primary transition-colors shrink-0">
+              <GripVertical className="w-3.5 h-3.5" />
             </div>
-            <span className="flex items-center justify-center w-6 h-6 rounded-md bg-surface-muted text-[10px] font-bold text-text-muted">
-              {index + 1}
+
+            {/* Execution Badge */}
+            <span className={`px-2 py-0.5 rounded font-mono text-[10px] font-semibold shrink-0 ${
+              cell.agentStatus === 'error' 
+                ? 'bg-danger/10 text-danger border border-danger/20' 
+                : (cell.agentStatus === 'executing' || cell.agentStatus === 'generating' || cell.agentStatus === 'fixing')
+                ? 'bg-accent/15 text-accent border border-accent/30 animate-pulse'
+                : 'bg-surface-muted/60 text-text-muted border border-surface-border/40'
+            }`}>
+              [{index + 1}]
             </span>
+
+            {/* Editable Cell Title */}
+            {isEditingName && !dashboardMode ? (
+              <div className="flex items-center gap-1.5 bg-surface-muted border border-accent/40 rounded-lg px-2 py-0.5">
+                <input
+                  autoFocus
+                  value={nameInput}
+                  onChange={e => setNameInput(e.target.value)}
+                  onBlur={commitName}
+                  onKeyDown={e => { if (e.key === 'Enter') commitName(); if (e.key === 'Escape') setIsEditingName(false); }}
+                  className="bg-transparent text-[11px] font-bold text-text-primary focus:outline-none w-48"
+                  placeholder="Give this analysis a name..."
+                />
+                <button onClick={commitName} className="text-success hover:text-success/80 transition-all hover:scale-110"><Check className="w-3.5 h-3.5" /></button>
+              </div>
+            ) : (
+              <button
+                onClick={() => { if (!dashboardMode) { setNameInput(cell.name || ''); setIsEditingName(true); } }}
+                className="group/name flex items-center gap-1.5 text-[12px] font-semibold text-text-secondary hover:text-text-primary transition-colors truncate text-left"
+                title={!dashboardMode ? "Click to rename cell" : ""}
+              >
+                <span className={cell.name ? "truncate" : "text-text-muted italic font-normal text-[11px]"}>
+                  {cell.name || `Analysis Cell ${index + 1}`}
+                </span>
+                {!dashboardMode && <Pencil className="w-2.5 h-2.5 opacity-0 group-hover/name:opacity-60 transition-opacity shrink-0" />}
+              </button>
+            )}
+
+            {cell.queryResult && (
+              <span className="hidden sm:inline font-mono text-[10px] text-success/90 bg-success/10 px-2 py-0.5 rounded border border-success/20 shrink-0">
+                {cell.queryResult.rowCount} rows ({cell.queryResult.executionMs}ms)
+              </span>
+            )}
           </div>
           
-          <div className="flex-1 flex items-center gap-2 bg-surface-muted/50 border border-surface-border rounded-lg px-3 py-1.5 focus-within:border-accent/50 transition-colors">
+          <div className="flex-1 flex items-center gap-2 bg-surface-muted border border-surface-border rounded-lg px-3 py-1.5 focus-within:border-accent/50 transition-colors">
             <Sparkles className="w-3.5 h-3.5 text-accent" />
             <input 
               value={cell.prompt}
@@ -916,8 +926,8 @@ export default function NotebookCellComponent({ cell, index }: Props) {
             {/* Resizable split grid */}
             <div ref={splitRef} className="flex flex-1 min-h-0 relative" style={{ userSelect: dragActive ? 'none' : 'auto' }}>
               {/* Left: SQL Editor / Chat / Diff */}
-              <div className="flex flex-col border-r border-surface-border bg-[#0a0e1a]/50 overflow-hidden min-h-0" style={{ width: `${splitPct}%` }}>
-                <div className="flex items-center justify-between px-4 py-2 border-b border-surface-border/50 text-[10px] uppercase font-bold">
+              <div className="flex flex-col border-r border-surface-border bg-surface-card/50 overflow-hidden min-h-0" style={{ width: `${splitPct}%` }}>
+                <div className="flex items-center justify-between px-4 py-2 border-b border-surface-border/50 bg-surface-base/40 text-[10px] uppercase font-bold">
                   <div className="flex items-center gap-3">
                     <button 
                       onClick={() => setLeftTab('sql')} 
@@ -1019,7 +1029,7 @@ export default function NotebookCellComponent({ cell, index }: Props) {
                     <Editor 
                       height="100%"
                       defaultLanguage="sql"
-                      theme={editorTheme}
+                      theme={(appTheme === 'light' || appTheme === 'donezo-light' || appTheme === 'executive-light') && editorTheme === 'nvn-dark' ? 'vs' : editorTheme}
                       beforeMount={handleEditorWillMount}
                       value={cell.sql}
                       onChange={v => setSql(v || '')}
@@ -1034,10 +1044,10 @@ export default function NotebookCellComponent({ cell, index }: Props) {
                 )}
 
                 {leftTab === 'chat' && (
-                  <div className="flex-1 flex flex-col min-h-0 bg-[#070b14]/30 p-4">
+                  <div className="flex-1 flex flex-col min-h-0 bg-surface-base/40 p-4">
                     {/* Chat Message Thread */}
                     <div className="flex-1 overflow-y-auto mb-4 space-y-3 pr-1 scrollbar-thin">
-                      <div className="flex flex-col gap-1.5 p-3 rounded-2xl bg-[#0b1021] border border-surface-border text-xs max-w-[85%] mr-auto shadow-sm">
+                      <div className="flex flex-col gap-1.5 p-3 rounded-2xl bg-surface-card border border-surface-border text-xs max-w-[85%] mr-auto shadow-sm">
                         <p className="text-text-secondary">
                           💬 <strong>AI Conversational Refinement</strong>
                         </p>
@@ -1057,7 +1067,7 @@ export default function NotebookCellComponent({ cell, index }: Props) {
                           className={`flex flex-col gap-1.5 p-3 rounded-2xl text-xs max-w-[85%] shadow-md ${
                             msg.role === 'user' 
                               ? 'bg-accent/15 border border-accent/30 ml-auto text-text-primary' 
-                              : 'bg-[#0d1325] border border-surface-border mr-auto text-text-secondary'
+                              : 'bg-surface-card border border-surface-border mr-auto text-text-secondary'
                           }`}
                         >
                           <span className="text-[9px] uppercase tracking-wider font-bold text-text-muted">
@@ -1065,7 +1075,7 @@ export default function NotebookCellComponent({ cell, index }: Props) {
                           </span>
                           <p className="whitespace-pre-wrap">{msg.content}</p>
                           {msg.sql && (
-                            <div className="mt-1.5 p-2 bg-black/40 rounded-lg border border-surface-border/30 max-h-[140px] overflow-y-auto font-mono text-[10px] text-accent select-text">
+                            <div className="mt-1.5 p-2 bg-surface-muted/60 rounded-lg border border-surface-border/30 max-h-[140px] overflow-y-auto font-mono text-[10px] text-accent select-text">
                               {msg.sql}
                             </div>
                           )}
@@ -1099,7 +1109,7 @@ export default function NotebookCellComponent({ cell, index }: Props) {
                 )}
 
                 {leftTab === 'diff' && cell.previousSql && (
-                  <div className="flex-1 overflow-auto bg-[#050811] p-4 font-mono text-xs select-text leading-relaxed">
+                  <div className="flex-1 overflow-auto bg-surface-base p-4 font-mono text-xs select-text leading-relaxed">
                     <div className="mb-3 text-[10px] text-text-muted uppercase tracking-wider font-bold">
                       Line-by-line diff of AI SQL auto-correction:
                     </div>
@@ -1134,7 +1144,7 @@ export default function NotebookCellComponent({ cell, index }: Props) {
                 )}
 
                 {leftTab === 'history' && selectedHistoryIdx !== null && cell.sqlHistory && (
-                  <div className="flex-1 overflow-auto bg-[#050811] p-4 font-mono text-xs select-text leading-relaxed animate-in fade-in duration-200">
+                  <div className="flex-1 overflow-auto bg-surface-base p-4 font-mono text-xs select-text leading-relaxed animate-in fade-in duration-200">
                     <div className="flex items-center justify-between mb-3 border-b border-surface-border/50 pb-2">
                       <span className="text-[10px] text-text-muted uppercase tracking-wider font-bold">
                         Comparing Version {selectedHistoryIdx + 1} with Current SQL:
@@ -1192,7 +1202,7 @@ export default function NotebookCellComponent({ cell, index }: Props) {
                 )}
 
                 {leftTab === 'history' && selectedHistoryIdx === null && (
-                  <div className="flex-1 flex flex-col min-h-0 bg-[#070b14]/30 p-4 animate-in fade-in duration-200">
+                  <div className="flex-1 flex flex-col min-h-0 bg-surface-base/40 p-4 animate-in fade-in duration-200">
                     <div className="flex items-center justify-between text-[10px] text-text-muted uppercase tracking-wider font-bold mb-3">
                       <span>Query Version History</span>
                       {cell.sqlHistory && cell.sqlHistory.length > 0 && (
@@ -1218,7 +1228,7 @@ export default function NotebookCellComponent({ cell, index }: Props) {
                         cell.sqlHistory.map((historySql, idx) => (
                           <div 
                             key={idx}
-                            className="flex flex-col gap-2 p-3 rounded-xl border border-surface-border bg-[#0b1021]/50 hover:bg-[#0b1021]/90 transition-all group/item"
+                            className="flex flex-col gap-2 p-3 rounded-xl border border-surface-border bg-surface-card hover:bg-surface-hover transition-all group/item"
                           >
                             <div className="flex items-center justify-between text-[10px]">
                               <span className="font-bold text-accent">Version {idx + 1}</span>
@@ -1316,12 +1326,17 @@ export default function NotebookCellComponent({ cell, index }: Props) {
                         value={cell.vizType}
                         onChange={e => updateCell(cell.id, { vizType: e.target.value as any })}
                       >
-                        <option value="bar">Bar</option>
-                        <option value="line">Line</option>
-                        <option value="area">Area</option>
-                        <option value="scatter">Scatter</option>
-                        <option value="bubble">Bubble</option>
-                        <option value="pie">Pie</option>
+                        <option value="bar">Bar Chart</option>
+                        <option value="line">Line Chart</option>
+                        <option value="area">Area Chart</option>
+                        <option value="scatter">Scatter Plot</option>
+                        <option value="bubble">Bubble Chart</option>
+                        <option value="pie">Pie Chart</option>
+                        <option value="donut">Donut Ring</option>
+                        <option value="heatmap">Heatmap Grid</option>
+                        <option value="treemap">Treemap</option>
+                        <option value="histogram">Histogram</option>
+                        <option value="combo">Combo (Bar+Line)</option>
                       </select>
                     )}
                   </div>

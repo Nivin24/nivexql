@@ -55,7 +55,7 @@ export interface NotebookCell {
   queryResult: QueryResult | null;
   agentStatus: AgentStatus;
   agentLog: string[];
-  vizType: 'bar' | 'line' | 'scatter' | 'pie' | 'area' | 'bubble';
+  vizType: 'bar' | 'line' | 'scatter' | 'pie' | 'area' | 'bubble' | 'donut' | 'heatmap' | 'treemap' | 'histogram' | 'combo';
   showViz: boolean;
   viewMode?: 'table' | 'chart' | 'pivot';
   insights: string | null;
@@ -96,14 +96,21 @@ interface AppState {
   favorites: string[];
   globalContext: string;
   sidebarWidth: number;
+  isSidebarCollapsed: boolean;
+  toggleSidebarCollapsed: () => void;
+  setSidebarCollapsed: (collapsed: boolean) => void;
   editorHeight: number;
   showSchemaDiagram: boolean;
   uiTextSize: 'xs' | 'sm' | 'base' | 'lg';
   editorTheme: string;
   queryHistory: QueryHistoryEntry[];
-  appTheme: 'dark' | 'light' | 'cosmic';
+  appTheme: 'dark' | 'light' | 'cosmic' | 'donezo-light' | 'executive-light' | 'cyberpunk';
   uiStyle: 'classic' | 'liquid';
   dashboardMode: boolean;
+  showMarketplaceModal: boolean;
+  unlockedThemes: string[];
+  setShowMarketplaceModal: (show: boolean) => void;
+  unlockTheme: (themeId: string) => void;
 
   // Niche Planner — session-only cache (not persisted)
   cachedNiches: StorytellingNiche[] | null;
@@ -455,6 +462,108 @@ function renderChart(containerId, data, columns, chartType) {
     }
   }
 
+  else if (chartType === 'donut') {
+    const pieData = data.slice(0, 10);
+    const color = d3.scaleOrdinal(d3.schemeTableau10);
+    const radius = Math.min(width, height) / 2 - 15;
+    const pieG = g.append('g').attr('transform', 'translate(' + (width / 2) + ',' + (height / 2) + ')');
+    const pie = d3.pie().value(d => +d[yCol]).sort(null);
+    const arc = d3.arc().innerRadius(radius * 0.58).outerRadius(radius).cornerRadius(4);
+    const arcs = pie(pieData);
+
+    pieG.selectAll('path').data(arcs).join('path')
+      .attr('d', arc).attr('fill', (_d, i) => color(i.toString())).attr('stroke', '#060913').attr('stroke-width', 3)
+      .on('mouseover', function(event, d) { d3.select(this).attr('opacity', 0.85); showTip(event, d.data); })
+      .on('mouseleave', function() { d3.select(this).attr('opacity', 1); hideTip(); });
+
+    const totalSum = d3.sum(pieData, d => +d[yCol] || 0);
+    pieG.append('text').attr('text-anchor', 'middle').attr('dy', '-0.2em').attr('fill', '#94a3b8').attr('font-size', '10px').attr('font-weight', 'bold').text('TOTAL');
+    pieG.append('text').attr('text-anchor', 'middle').attr('dy', '1em').attr('fill', '#f97316').attr('font-size', '14px').attr('font-weight', 'extrabold').text(formatVal(totalSum));
+  }
+
+  else if (chartType === 'heatmap') {
+    const xDomain = Array.from(new Set(data.map(d => String(d[xCol]))));
+    const yDomain = Array.from(new Set(data.map(d => String(d[zCol] || d[yCol]))));
+    const xScale = d3.scaleBand().domain(xDomain).range([0, width]).padding(0.05);
+    const yScale = d3.scaleBand().domain(yDomain).range([height, 0]).padding(0.05);
+    const maxVal = d3.max(data, d => +d[yCol]) || 1;
+    const colorScale = d3.scaleSequential(d3.interpolateOranges).domain([0, maxVal]);
+
+    g.append('g').attr('transform', 'translate(0,' + height + ')').call(d3.axisBottom(xScale))
+      .selectAll('text').attr('fill', '#8b9cc4').attr('font-size', 9).attr('transform', 'rotate(-30)').style('text-anchor', 'end');
+    g.append('g').call(d3.axisLeft(yScale)).selectAll('text').attr('fill', '#8b9cc4').attr('font-size', 9);
+
+    g.selectAll('rect').data(data).join('rect')
+      .attr('x', d => xScale(String(d[xCol])))
+      .attr('y', d => yScale(String(d[zCol] || d[yCol])))
+      .attr('width', xScale.bandwidth()).attr('height', yScale.bandwidth()).attr('rx', 3)
+      .attr('fill', d => colorScale(+d[yCol]))
+      .on('mouseover', (event, d) => showTip(event, d))
+      .on('mouseleave', () => hideTip());
+  }
+
+  else if (chartType === 'treemap') {
+    const root = d3.hierarchy({ children: data }).sum(d => +d[yCol] || 1).sort((a, b) => (b.value || 0) - (a.value || 0));
+    d3.treemap().size([width, height]).padding(3)(root);
+    const color = d3.scaleOrdinal(d3.schemeTableau10);
+    const leaves = g.selectAll('g').data(root.leaves()).join('g').attr('transform', d => 'translate(' + d.x0 + ',' + d.y0 + ')');
+
+    leaves.append('rect')
+      .attr('width', d => Math.max(0, d.x1 - d.x0))
+      .attr('height', d => Math.max(0, d.y1 - d.y0))
+      .attr('rx', 4).attr('fill', (_d, i) => color(i.toString())).attr('opacity', 0.85)
+      .on('mouseover', (event, d) => showTip(event, d.data))
+      .on('mouseleave', () => hideTip());
+
+    leaves.append('text')
+      .attr('x', 6).attr('y', 16).attr('fill', '#ffffff').attr('font-size', '10px').attr('font-weight', 'bold')
+      .text(d => (d.x1 - d.x0 > 45 && d.y1 - d.y0 > 25) ? String(d.data[xCol]).slice(0, 10) : '');
+  }
+
+  else if (chartType === 'histogram') {
+    const numericVals = data.map(d => +d[yCol]).filter(v => !isNaN(v));
+    const xScale = d3.scaleLinear().domain(d3.extent(numericVals)).nice().range([0, width]);
+    const bins = d3.bin().domain(xScale.domain()).thresholds(xScale.ticks(8))(numericVals);
+    const yScale = d3.scaleLinear().domain([0, d3.max(bins, d => d.length) || 1]).nice().range([height, 0]);
+
+    addGrid(yScale);
+    g.append('g').attr('transform', 'translate(0,' + height + ')').call(d3.axisBottom(xScale).ticks(6)).selectAll('text').attr('fill', '#8b9cc4').attr('font-size', 10);
+    g.append('g').call(d3.axisLeft(yScale).ticks(5)).selectAll('text').attr('fill', '#8b9cc4').attr('font-size', 10);
+
+    g.selectAll('rect').data(bins).join('rect')
+      .attr('x', d => xScale(d.x0))
+      .attr('y', d => yScale(d.length))
+      .attr('width', d => Math.max(0, xScale(d.x1) - xScale(d.x0) - 1))
+      .attr('height', d => Math.max(0, height - yScale(d.length)))
+      .attr('rx', 3).attr('fill', '#10b981').attr('opacity', 0.85);
+  }
+
+  else if (chartType === 'combo') {
+    const xScale = d3.scaleBand().domain(data.map(d => String(d[xCol]))).range([0, width]).padding(0.3);
+    const y1Max = d3.max(data, d => +d[yCol]) ?? 0;
+    const y2Max = d3.max(data, d => +d[zCol]) ?? 0;
+    const y1Scale = d3.scaleLinear().domain([0, y1Max * 1.1]).nice().range([height, 0]);
+    const y2Scale = d3.scaleLinear().domain([0, y2Max * 1.1]).nice().range([height, 0]);
+    addGrid(y1Scale);
+
+    g.append('g').attr('transform', 'translate(0,' + height + ')').call(d3.axisBottom(xScale))
+      .selectAll('text').attr('fill', '#8b9cc4').attr('font-size', 10).attr('transform', 'rotate(-30)').style('text-anchor', 'end');
+    g.append('g').call(d3.axisLeft(y1Scale).ticks(5)).selectAll('text').attr('fill', '#f97316').attr('font-size', 10);
+    g.append('g').attr('transform', 'translate(' + width + ',0)').call(d3.axisRight(y2Scale).ticks(5)).selectAll('text').attr('fill', '#38bdf8').attr('font-size', 10);
+
+    g.selectAll('rect').data(data).join('rect')
+      .attr('x', d => xScale(String(d[xCol])))
+      .attr('y', d => y1Scale(+d[yCol]))
+      .attr('width', xScale.bandwidth())
+      .attr('height', d => Math.max(0, height - y1Scale(+d[yCol])))
+      .attr('rx', 4).attr('fill', '#f97316').attr('opacity', 0.75)
+      .on('mouseover', (event, d) => showTip(event, d))
+      .on('mouseleave', () => hideTip());
+
+    const line = d3.line().x(d => xScale(String(d[xCol])) + xScale.bandwidth() / 2).y(d => y2Scale(+d[zCol])).curve(d3.curveMonotoneX);
+    g.append('path').datum(data).attr('fill', 'none').attr('stroke', '#38bdf8').attr('stroke-width', 2.5).attr('d', line);
+  }
+
   if (chartType !== 'pie') {
     g.append('text').attr('x', width / 2).attr('y', height + 52).attr('text-anchor', 'middle').attr('fill', '#8b9cc4').attr('font-size', 11).attr('font-weight', 'bold').text(xCol);
     g.append('text').attr('transform', 'rotate(-90)').attr('x', -height / 2).attr('y', -48).attr('text-anchor', 'middle').attr('fill', '#8b9cc4').attr('font-size', 11).attr('font-weight', 'bold').text(yCol);
@@ -485,6 +594,7 @@ export const useAppStore = create<AppState>()(
         favorites: [],
         globalContext: '',
         sidebarWidth: 260,
+        isSidebarCollapsed: false,
         editorHeight: 40,
         showSchemaDiagram: false,
         uiTextSize: 'sm',
@@ -493,18 +603,30 @@ export const useAppStore = create<AppState>()(
         appTheme: 'dark',
         uiStyle: 'classic',
         dashboardMode: false,
+        showMarketplaceModal: false,
+        unlockedThemes: ['dark', 'light', 'cosmic', 'donezo-light'],
+        setShowMarketplaceModal: (showMarketplaceModal) => set({ showMarketplaceModal }),
+        unlockTheme: (themeId) => set((s) => ({ unlockedThemes: s.unlockedThemes.includes(themeId) ? s.unlockedThemes : [...s.unlockedThemes, themeId] })),
 
         // Niche cache — session-only, starts empty
         cachedNiches: null,
 
         addConnection: (c) => set((s) => ({ connections: [...s.connections, c] })),
-        removeConnection: (id) => set((s) => ({
-          connections: s.connections.filter(c => c.id !== id),
-          activeConnectionId: s.activeConnectionId === id ? null : s.activeConnectionId
-        })),
+        removeConnection: (id) => set((s) => {
+          const remaining = s.connections.filter(c => c.id !== id);
+          const wasActive = s.activeConnectionId === id;
+          const nextActiveId = wasActive ? (remaining[0]?.id ?? null) : s.activeConnectionId;
+          return {
+            connections: remaining,
+            activeConnectionId: nextActiveId,
+            schema: !nextActiveId ? [] : (wasActive ? [] : s.schema)
+          };
+        }),
         setActiveConnection: (id) => set({ activeConnectionId: id }),
         setSchema: (tables) => set({ schema: tables }),
         setSidebarWidth: (fn) => set((s) => ({ sidebarWidth: fn(s.sidebarWidth) })),
+        toggleSidebarCollapsed: () => set((s) => ({ isSidebarCollapsed: !s.isSidebarCollapsed })),
+        setSidebarCollapsed: (isSidebarCollapsed) => set({ isSidebarCollapsed }),
         setEditorHeight: (fn) => set((s) => ({ editorHeight: fn(s.editorHeight) })),
         setShowSchemaDiagram: (showSchemaDiagram) => set({ showSchemaDiagram }),
         setShowConnModal: (showConnModal) => set({ showConnModal }),
@@ -1016,6 +1138,7 @@ export const useAppStore = create<AppState>()(
           llmEndpoint: state.llmEndpoint,
           globalContext: state.globalContext,
           sidebarWidth: state.sidebarWidth,
+          isSidebarCollapsed: state.isSidebarCollapsed,
           editorHeight: state.editorHeight,
           uiTextSize: state.uiTextSize,
           editorTheme: state.editorTheme,
@@ -1024,6 +1147,7 @@ export const useAppStore = create<AppState>()(
           appTheme: state.appTheme,
           uiStyle: state.uiStyle,
           dashboardMode: state.dashboardMode,
+          unlockedThemes: state.unlockedThemes,
         }),
       }
   )
