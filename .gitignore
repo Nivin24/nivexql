@@ -35,3 +35,7 @@ logs/
 # Persistence
 *.db
 *.sqlite3
+
+# Customizations & Agents
+AGENTS.md
+.agents/
