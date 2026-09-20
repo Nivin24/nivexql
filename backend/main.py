@@ -50,7 +50,7 @@ app.include_router(llm.router, tags=["AI & LLM Services"])
 
 if __name__ == "__main__":
     import sys
-    port = int(database.os.getenv("NIVEXQL_PORT", "8081"))
+    port = int(database.os.getenv("NIVEXQL_PORT", "8082"))
     logger.info(f"Starting server on http://127.0.0.1:{port}")
     is_frozen = getattr(sys, "frozen", False)
     if is_frozen:

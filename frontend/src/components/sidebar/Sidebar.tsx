@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Database, Plus, Trash2, ChevronDown, Star,
-  Table, Columns, Search, Loader2, CheckCircle2, Layout, BookOpen, Clock, XCircle, BookMarked, Copy, Shield, Settings,
-  Activity, HardDrive, Lock, RefreshCw
+  Table, Columns, Search, Loader2, CheckCircle2, Layout, Clock, XCircle, BookMarked, BookOpen, Copy, Shield, Settings,
+  Activity, HardDrive, Lock, RefreshCw, PanelLeftClose, PanelLeftOpen, Play, X
 } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { 
@@ -17,6 +17,32 @@ import {
 
 import { format } from 'sql-formatter';
 
+interface InspectorTableStat {
+  table_name: string;
+  total_size: string;
+  table_size: string;
+  index_size: string;
+  row_count: number;
+}
+
+interface InspectorSession {
+  pid: number;
+  user: string;
+  client?: string;
+  start_time: string;
+  state: string;
+  query?: string;
+}
+
+interface InspectorLock {
+  table_name: string;
+  granted: boolean;
+  mode: string;
+  pid: number;
+  user: string;
+  query?: string;
+}
+
 interface SidebarProps {
   width: number;
 }
@@ -24,21 +50,25 @@ interface SidebarProps {
 export default function Sidebar({ width }: SidebarProps) {
   const connections = useAppStore(s => s.connections);
   const activeConnectionId = useAppStore(s => s.activeConnectionId);
-  const removeConnection = useAppStore(s => s.removeConnection);
+  const activeConn = connections.find(c => c.id === activeConnectionId);
   const setActiveConnection = useAppStore(s => s.setActiveConnection);
   const schema = useAppStore(s => s.schema);
   const setSchema = useAppStore(s => s.setSchema);
+  const removeConnection = useAppStore(s => s.removeConnection);
   const setShowConnModal = useAppStore(s => s.setShowConnModal);
   const activeNotebookId = useAppStore(s => s.activeNotebookId);
   const notebooks = useAppStore(s => s.notebooks);
   const activeNotebook = notebooks.find(n => n.id === activeNotebookId);
   const activeCellId = activeNotebook?.activeCellId || null;
   const updateCell = useAppStore(s => s.updateCell);
+  const addCell = useAppStore(s => s.addCell);
+  
+  const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
+  const toggleSidebarCollapsed = useAppStore(s => s.toggleSidebarCollapsed);
   
   const globalContext = useAppStore(s => s.globalContext);
   const setGlobalContext = useAppStore(s => s.setGlobalContext);
   
-
   const queryHistory = useAppStore(s => s.queryHistory);
   const clearQueryHistory = useAppStore(s => s.clearQueryHistory);
   const favorites = useAppStore(s => s.favorites);
@@ -47,6 +77,8 @@ export default function Sidebar({ width }: SidebarProps) {
   const setShowSettingsModal = useAppStore(s => s.setShowSettingsModal);
   
   const [tab, setTab] = useState<'schema' | 'history' | 'saved' | 'knowledge' | 'inspector'>('schema');
+  const [activeRailPopup, setActiveRailPopup] = useState<'schema' | 'history' | 'saved' | 'knowledge' | 'inspector' | null>(null);
+
   const [expandedTbls, setExpandedTbls] = useState<Record<string, boolean>>({});
   const [previewQuery, setPreviewQuery] = useState<{ sql: string, name: string } | null>(null);
   const [isCopied, setIsCopied] = useState(false);
@@ -54,14 +86,25 @@ export default function Sidebar({ width }: SidebarProps) {
   const [historySearch, setHistorySearch] = useState('');
   const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'success' | 'failed'>('all');
 
+  // Close rail popup on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && activeRailPopup) {
+        setActiveRailPopup(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeRailPopup]);
+
   // Inspector States
-  const [inspectorStats, setInspectorStats] = useState<any[]>([]);
-  const [inspectorSessions, setInspectorSessions] = useState<any[]>([]);
-  const [inspectorLocks, setInspectorLocks] = useState<any[]>([]);
+  const [inspectorStats, setInspectorStats] = useState<InspectorTableStat[]>([]);
+  const [inspectorSessions, setInspectorSessions] = useState<InspectorSession[]>([]);
+  const [inspectorLocks, setInspectorLocks] = useState<InspectorLock[]>([]);
   const [loadingInspector, setLoadingInspector] = useState(false);
   const [inspectorError, setInspectorError] = useState<string | null>(null);
 
-  const refreshInspector = async () => {
+  const refreshInspector = useCallback(async () => {
     if (!activeConnectionId) {
       setInspectorError('No active connection');
       return;
@@ -77,12 +120,13 @@ export default function Sidebar({ width }: SidebarProps) {
       setInspectorStats(statsRes.stats || []);
       setInspectorSessions(sessionsRes.sessions || []);
       setInspectorLocks(locksRes.locks || []);
-    } catch (err: any) {
-      setInspectorError(err.message || 'Failed to fetch database diagnostics');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setInspectorError(msg || 'Failed to fetch database diagnostics');
     } finally {
       setLoadingInspector(false);
     }
-  };
+  }, [activeConnectionId]);
 
   const handleTerminateSession = async (pid: number) => {
     try {
@@ -93,16 +137,20 @@ export default function Sidebar({ width }: SidebarProps) {
       } else {
         alert('Could not terminate session.');
       }
-    } catch (err: any) {
-      alert(`Error terminating session: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(`Error terminating session: ${msg}`);
     }
   };
 
   useEffect(() => {
     if (tab === 'inspector') {
-      refreshInspector();
+      const t = setTimeout(() => {
+        refreshInspector();
+      }, 0);
+      return () => clearTimeout(t);
     }
-  }, [tab, activeConnectionId]);
+  }, [tab, refreshInspector]);
 
   const handleSelectConn = async (id: string) => {
     const conn = connections.find(c => c.id === id);
@@ -112,7 +160,9 @@ export default function Sidebar({ width }: SidebarProps) {
       await apiConnectServer(conn);
       const { tables } = await apiSelectDatabase(conn.database);
       setSchema(tables);
-    } catch {}
+    } catch (err) {
+      console.error('Failed to select connection:', err);
+    }
   };
 
   const toggleTable = (name: string) => {
@@ -134,6 +184,11 @@ export default function Sidebar({ width }: SidebarProps) {
       const currentPrompt = activeNb.cells.find(c => c.id === activeCellId)?.prompt || '';
       updateCell(activeCellId, { prompt: currentPrompt + ` ${name} ` });
     }
+  };
+
+  const handleQuickRunTable = (tableName: string) => {
+    const sql = `SELECT * FROM ${tableName} LIMIT 10;`;
+    addCell(sql, `Query ${tableName}`);
   };
 
   const handleInsertPreview = () => {
@@ -158,235 +213,127 @@ export default function Sidebar({ width }: SidebarProps) {
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  return (
-    <aside 
-      className="flex flex-col h-full bg-surface-base border-r border-surface-border glass transition-all duration-300"
-      style={{ width }}
-    >
-      {/* App Header */}
-      <div className="p-6 border-b border-surface-border flex items-center justify-between">
-        <div className="flex flex-col gap-2">
-          <img src="/logo_combined.svg" className="h-13 w-auto self-start" alt="NivexQL Logo" />
-          <div className="flex items-center gap-1.5 ml-1 mt-0.5">
-            <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-            <span className="text-[10px] text-text-muted font-bold uppercase tracking-widest">Workbench</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Sources Section */}
-      <div className="px-4 py-4 border-b border-surface-border">
-        <div className="flex items-center justify-between mb-3 px-1">
-          <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Sources</span>
-          <div className="flex items-center gap-1">
-            <button 
-              onClick={() => useAppStore.getState().setShowSchemaDiagram(true)}
-              className="p-1 hover:bg-surface-muted rounded-md transition-colors text-accent/70 hover:text-accent"
-              title="View Schema Map"
-            >
-              <Layout className="w-3.5 h-3.5" />
-            </button>
-            <button 
-              onClick={() => setShowConnModal(true)} 
-              className="p-1 hover:bg-surface-muted rounded-md transition-colors"
-              title="Add New Connection"
-            >
-              <Plus className="w-3.5 h-3.5 text-accent" />
-            </button>
-          </div>
-        </div>
-        
-        <div className="flex flex-col gap-1.5">
-          {connections.map(conn => (
-            <div 
-              key={conn.id}
-              onClick={() => handleSelectConn(conn.id)}
-              className={`group relative flex items-center gap-3 p-2.5 rounded-xl border transition-all cursor-pointer
-                ${activeConnectionId === conn.id 
-                  ? 'bg-accent/10 border-accent/30 shadow-sm ring-1 ring-accent/20' 
-                  : 'bg-surface-card/50 border-surface-border hover:border-text-muted/30'}`}
-            >
-              <div className={`p-1.5 rounded-lg ${activeConnectionId === conn.id ? 'bg-accent/20' : 'bg-surface-muted'}`}>
-                <Database className={`w-3.5 h-3.5 ${activeConnectionId === conn.id ? 'text-accent' : 'text-text-muted'}`} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 text-[11px] font-bold text-text-primary">
-                  <span className="truncate">{conn.label}</span>
-                  {conn.use_ssh && (
-                    <span className="flex items-center gap-0.5 bg-warning/10 text-warning border border-warning/20 rounded px-1 py-0.5 text-[8px] font-bold uppercase tracking-widest shrink-0">
-                      <Shield className="w-2.5 h-2.5" />
-                      SSH
-                    </span>
-                  )}
-                </div>
-                <div className="text-[9px] text-text-muted uppercase tracking-tighter">{conn.dialect} • {conn.database}</div>
-              </div>
-              <button 
-                onClick={(e) => { e.stopPropagation(); removeConnection(conn.id); }}
-                className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-danger/10 hover:text-danger rounded-md transition-all"
-                title="Remove Connection"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ))}
-          {connections.length === 0 && (
-            <div className="px-1 py-4 text-center border border-dashed border-surface-border rounded-xl">
-              <p className="text-[10px] text-text-muted italic">No sources connected</p>
+  // ── REUSABLE TAB CONTENT RENDERER ───────────────────────────────────────────
+  const renderTabContent = () => (
+    <>
+      {tab === 'schema' && (
+        <div className="p-3 flex flex-col gap-2">
+          {schema.length > 0 && (
+            <div className="relative flex items-center bg-surface-base border border-surface-border rounded-lg px-2.5 py-1.5 focus-within:border-accent/50 transition-colors">
+              <Search className="w-3.5 h-3.5 text-text-muted shrink-0 mr-2" />
+              <input
+                type="text"
+                placeholder="Filter tables/columns..."
+                value={schemaSearch}
+                onChange={e => setSchemaSearch(e.target.value)}
+                className="flex-1 bg-transparent text-xs text-text-primary placeholder:text-text-muted focus:outline-none"
+              />
+              {schemaSearch && (
+                <button
+                  onClick={() => setSchemaSearch('')}
+                  className="text-text-muted hover:text-text-primary text-[10px] uppercase font-bold shrink-0 ml-1.5 cursor-pointer"
+                >
+                  Clear
+                </button>
+              )}
             </div>
           )}
-        </div>
-      </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-surface-border bg-surface-base/50">
-        <button
-          onClick={() => setTab('schema')}
-          className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-widest transition-all
-            ${tab === 'schema' ? 'text-accent border-b-2 border-accent' : 'text-text-muted hover:text-text-primary'}`}
-        >
-          Schema
-        </button>
-        <button
-          onClick={() => setTab('history')}
-          className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-widest transition-all
-            ${tab === 'history' ? 'text-accent border-b-2 border-accent' : 'text-text-muted hover:text-text-primary'}`}
-        >
-          History
-        </button>
-        <button
-          onClick={() => setTab('saved')}
-          className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-widest transition-all
-            ${tab === 'saved' ? 'text-accent border-b-2 border-accent' : 'text-text-muted hover:text-text-primary'}`}
-        >
-          Saved
-        </button>
-        <button
-          onClick={() => setTab('knowledge')}
-          className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-widest transition-all
-            ${tab === 'knowledge' ? 'text-accent border-b-2 border-accent' : 'text-text-muted hover:text-text-primary'}`}
-        >
-          Context
-        </button>
-        <button
-          onClick={() => setTab('inspector')}
-          className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-widest transition-all
-            ${tab === 'inspector' ? 'text-accent border-b-2 border-accent' : 'text-text-muted hover:text-text-primary'}`}
-        >
-          Inspector
-        </button>
-      </div>
+          <div className="flex flex-col gap-1">
+            {schema.filter(tbl => {
+              const term = schemaSearch.toLowerCase();
+              if (!term) return true;
+              if (tbl.name.toLowerCase().includes(term)) return true;
+              return tbl.columns.some(col => col.name.toLowerCase().includes(term));
+            }).map(tbl => {
+              const term = schemaSearch.toLowerCase();
+              const hasMatchingCol = term && tbl.columns.some(col => col.name.toLowerCase().includes(term));
+              const isExpanded = expandedTbls[tbl.name] || !!hasMatchingCol;
 
-      {/* Tab Content */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {tab === 'schema' && (
-          <div className="p-3 flex flex-col gap-2">
-            {schema.length > 0 && (
-              <div className="relative flex items-center bg-surface-base border border-surface-border rounded-lg px-2.5 py-1.5 focus-within:border-accent/50 transition-colors">
-                <Search className="w-3.5 h-3.5 text-text-muted shrink-0 mr-2" />
-                <input
-                  type="text"
-                  placeholder="Filter tables/columns..."
-                  value={schemaSearch}
-                  onChange={e => setSchemaSearch(e.target.value)}
-                  className="flex-1 bg-transparent text-xs text-text-primary placeholder:text-text-muted focus:outline-none"
-                />
-                {schemaSearch && (
-                  <button
-                    onClick={() => setSchemaSearch('')}
-                    className="text-text-muted hover:text-text-primary text-[10px] uppercase font-bold shrink-0 ml-1.5"
+              return (
+                <div key={tbl.name} className="flex flex-col">
+                  <div 
+                    className="flex items-center gap-2 p-2 rounded-lg hover:bg-surface-muted transition-colors cursor-pointer group"
+                    onClick={() => toggleTable(tbl.name)}
                   >
-                    Clear
-                  </button>
-                )}
-              </div>
-            )}
-
-            <div className="flex flex-col gap-1">
-              {schema.filter(tbl => {
-                const term = schemaSearch.toLowerCase();
-                if (!term) return true;
-                if (tbl.name.toLowerCase().includes(term)) return true;
-                return tbl.columns.some(col => col.name.toLowerCase().includes(term));
-              }).map(tbl => {
-                const term = schemaSearch.toLowerCase();
-                const hasMatchingCol = term && tbl.columns.some(col => col.name.toLowerCase().includes(term));
-                const isExpanded = expandedTbls[tbl.name] || !!hasMatchingCol;
-
-                return (
-                  <div key={tbl.name} className="flex flex-col">
-                    <div 
-                      className="flex items-center gap-2 p-2 rounded-lg hover:bg-surface-muted transition-colors cursor-pointer group"
-                      onClick={() => toggleTable(tbl.name)}
-                    >
-                      <ChevronDown className={`w-3 h-3 text-text-muted transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
-                      <Table className="w-3.5 h-3.5 text-accent/70" />
-                      <span className="text-xs text-text-secondary font-medium truncate">
-                        {schemaSearch ? (
-                          (() => {
-                            const parts = tbl.name.split(new RegExp(`(${schemaSearch.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi'));
-                            return parts.map((part, idx) => 
-                              part.toLowerCase() === schemaSearch.toLowerCase() 
-                                ? <span key={idx} className="text-accent font-semibold">{part}</span> 
-                                : part
-                            );
-                          })()
-                        ) : tbl.name}
+                    <ChevronDown className={`w-3 h-3 text-text-muted transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
+                    <Table className="w-3.5 h-3.5 text-accent/70" />
+                    <span className="text-xs text-text-secondary font-medium truncate flex-1">
+                      {schemaSearch ? (
+                        (() => {
+                          const parts = tbl.name.split(new RegExp(`(${schemaSearch.replace(/[-\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi'));
+                          return parts.map((part, idx) => 
+                            part.toLowerCase() === schemaSearch.toLowerCase() 
+                              ? <span key={idx} className="text-accent font-semibold">{part}</span> 
+                              : part
+                          );
+                        })()
+                      ) : tbl.name}
+                    </span>
+                    {tbl.rowCount !== undefined && (
+                      <span className="text-[9px] font-mono text-text-muted/60 bg-surface-base px-1.5 py-0.5 rounded border border-surface-border">
+                        {formatCount(tbl.rowCount)}
                       </span>
-                      {tbl.rowCount !== undefined && (
-                        <span className="text-[9px] font-mono text-text-muted/60 bg-surface-base px-1.5 py-0.5 rounded border border-surface-border">
-                          {formatCount(tbl.rowCount)}
-                        </span>
-                      )}
-                      <div className="flex-1" />
+                    )}
+
+                    {/* Hover action buttons: Insert & Quick Run */}
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-1">
                       <button 
                         onClick={(e) => { e.stopPropagation(); insertTable(tbl.name); }}
-                        className="opacity-0 group-hover:opacity-100 p-1 text-accent hover:bg-accent/10 rounded"
-                        title="Insert table name"
+                        className="p-1 text-text-muted hover:text-text-primary hover:bg-surface-border rounded transition-colors"
+                        title="Insert table name into prompt"
                       >
                         <Plus className="w-3 h-3" />
                       </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleQuickRunTable(tbl.name); }}
+                        className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-bold text-accent bg-accent/15 hover:bg-accent/25 border border-accent/30 rounded transition-all cursor-pointer"
+                        title={`Quick Query: SELECT * FROM ${tbl.name} LIMIT 10`}
+                      >
+                        <Play className="w-2.5 h-2.5 fill-accent" />
+                        <span>Run</span>
+                      </button>
                     </div>
-                    {isExpanded && (
-                      <div className="ml-7 flex flex-col gap-1 py-1 border-l border-surface-border pl-3 animate-in slide-in-from-left-1 duration-200">
-                        {tbl.columns.filter(col => {
-                          if (!schemaSearch) return true;
-                          return tbl.name.toLowerCase().includes(term) || col.name.toLowerCase().includes(term);
-                        }).map(col => (
-                          <div key={col.name} className="flex items-center gap-2 group/col">
-                            <Columns className="w-2.5 h-2.5 text-text-muted" />
-                            <span className="text-[10px] text-text-muted font-mono">
-                              {schemaSearch ? (
-                                (() => {
-                                  const parts = col.name.split(new RegExp(`(${schemaSearch.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi'));
-                                  return parts.map((part, idx) => 
-                                    part.toLowerCase() === schemaSearch.toLowerCase() 
-                                      ? <span key={idx} className="text-accent font-semibold">{part}</span> 
-                                      : part
-                                  );
-                                })()
-                              ) : col.name}
-                            </span>
-                            <span className="text-[9px] text-text-muted/50 italic">{col.type}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </div>
-                );
-              })}
-
-              {schema.length > 0 && schema.filter(tbl => {
-                const term = schemaSearch.toLowerCase();
-                if (!term) return true;
-                if (tbl.name.toLowerCase().includes(term)) return true;
-                return tbl.columns.some(col => col.name.toLowerCase().includes(term));
-              }).length === 0 && (
-                <div className="p-6 text-center text-text-muted italic text-[11px]">
-                  No tables or columns match "{schemaSearch}"
+                  {isExpanded && (
+                    <div className="ml-7 flex flex-col gap-1 py-1 border-l border-surface-border pl-3 animate-in slide-in-from-left-1 duration-200">
+                      {tbl.columns.filter(col => {
+                        if (!schemaSearch) return true;
+                        return tbl.name.toLowerCase().includes(term) || col.name.toLowerCase().includes(term);
+                      }).map(col => (
+                        <div key={col.name} className="flex items-center gap-2 group/col">
+                          <Columns className="w-2.5 h-2.5 text-text-muted" />
+                          <span className="text-[10px] text-text-muted font-mono">
+                            {schemaSearch ? (
+                              (() => {
+                                const parts = col.name.split(new RegExp(`(${schemaSearch.replace(/[-\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi'));
+                                return parts.map((part, idx) => 
+                                  part.toLowerCase() === schemaSearch.toLowerCase() 
+                                    ? <span key={idx} className="text-accent font-semibold">{part}</span> 
+                                    : part
+                                );
+                              })()
+                            ) : col.name}
+                          </span>
+                          <span className="text-[9px] text-text-muted/50 italic">{col.type}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              );
+            })}
+
+            {schema.length > 0 && schema.filter(tbl => {
+              const term = schemaSearch.toLowerCase();
+              if (!term) return true;
+              if (tbl.name.toLowerCase().includes(term)) return true;
+              return tbl.columns.some(col => col.name.toLowerCase().includes(term));
+            }).length === 0 && (
+              <div className="p-6 text-center text-text-muted italic text-[11px]">
+                No tables or columns match "{schemaSearch}"
+              </div>
+            )}
 
             {activeConnectionId && schema.length === 0 && (
               <div className="p-8 text-center opacity-40">
@@ -395,341 +342,699 @@ export default function Sidebar({ width }: SidebarProps) {
               </div>
             )}
           </div>
-        )}
+        </div>
+      )}
 
-        {tab === 'history' && (
-          <div className="flex flex-col h-full animate-in fade-in">
-            <div className="flex items-center justify-between px-4 pt-3 pb-2">
-              <div className="flex items-center gap-2 text-accent">
-                <Clock className="w-3.5 h-3.5" />
-                <span className="text-[11px] font-bold uppercase tracking-wider">Query History</span>
-              </div>
-              {queryHistory.length > 0 && (
-                <button onClick={clearQueryHistory} className="text-[10px] text-danger/60 hover:text-danger transition-colors" title="Clear history">Clear</button>
-              )}
+      {tab === 'history' && (
+        <div className="flex flex-col h-full animate-in fade-in">
+          <div className="flex items-center justify-between px-4 pt-3 pb-2">
+            <div className="flex items-center gap-2 text-accent">
+              <Clock className="w-3.5 h-3.5" />
+              <span className="text-[11px] font-bold uppercase tracking-wider">Query History</span>
             </div>
-            <div className="px-3 pb-2 flex flex-col gap-2">
-              <div className="relative flex items-center bg-surface-base border border-surface-border rounded-lg px-2.5 py-1.5 focus-within:border-accent/50 transition-colors">
-                <Search className="w-3.5 h-3.5 text-text-muted shrink-0 mr-2" />
-                <input
-                  type="text"
-                  placeholder="Search history..."
-                  value={historySearch}
-                  onChange={e => setHistorySearch(e.target.value)}
-                  className="flex-1 bg-transparent text-xs text-text-primary placeholder:text-text-muted focus:outline-none"
-                />
-                {historySearch && (
-                  <button onClick={() => setHistorySearch('')} className="text-text-muted hover:text-text-primary text-[10px] uppercase font-bold shrink-0 ml-1.5">Clear</button>
-                )}
-              </div>
-              <div className="flex gap-1 p-0.5 bg-surface-base border border-surface-border rounded-xl text-[9px] font-bold">
-                {(['all', 'success', 'failed'] as const).map(status => (
-                  <button
-                    key={status}
-                    onClick={() => setHistoryStatusFilter(status)}
-                    className={`flex-1 py-1.5 rounded-lg capitalize transition-all cursor-pointer
-                      ${historyStatusFilter === status ? 'bg-surface-muted text-text-primary border border-surface-border/50 shadow-sm' : 'text-text-muted hover:text-text-primary'}`}
-                  >
-                    {status}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto scrollbar-thin px-2 pb-4 flex flex-col gap-1.5">
-              {(() => {
-                const filteredHistory = queryHistory.filter(h => {
-                  const term = historySearch.toLowerCase();
-                  if (term) {
-                    const matchSql = h.sql.toLowerCase().includes(term);
-                    const matchName = h.cellName?.toLowerCase().includes(term);
-                    if (!matchSql && !matchName) return false;
-                  }
-                  if (historyStatusFilter === 'success' && !h.success) return false;
-                  if (historyStatusFilter === 'failed' && h.success) return false;
-                  return true;
-                });
-
-                if (filteredHistory.length === 0) {
-                  return (
-                    <div className="p-8 text-center opacity-30">
-                      <Clock className="w-8 h-8 mx-auto mb-2" />
-                      <p className="text-[10px] uppercase tracking-widest font-bold">No history matches</p>
-                    </div>
-                  );
-                }
-
-                return filteredHistory.map(h => (
-                <div
-                  key={h.id}
-                  className="group flex flex-col gap-1 p-2.5 rounded-xl border border-surface-border/50 bg-surface-card/30 hover:border-accent/20 hover:bg-surface-card/60 cursor-pointer transition-all"
-                  onClick={() => setPreviewQuery({ sql: h.sql, name: h.cellName || 'History Query' })}
-                  title="Click to preview query"
-                >
-                  <div className="flex items-center gap-2">
-                    {h.success
-                      ? <CheckCircle2 className="w-3 h-3 text-success shrink-0" />
-                      : <XCircle className="w-3 h-3 text-danger shrink-0" />}
-                    <span className="text-[10px] font-bold text-text-muted truncate flex-1">{h.cellName}</span>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); addFavorite(h.sql); }}
-                      className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-warning transition-all"
-                      title="Save query"
-                    >
-                      <Star className="w-3 h-3" />
-                    </button>
-                    <span className="text-[9px] text-text-muted/50 shrink-0">{h.executionMs}ms</span>
-                  </div>
-                  <pre className="text-[10px] text-text-secondary font-mono truncate bg-surface-base/40 rounded px-2 py-1 max-w-full">{h.sql.replace(/\s+/g, ' ').trim()}</pre>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[9px] text-text-muted/60">{h.rowCount} rows</span>
-                    <span className="text-[9px] text-text-muted/50">{new Date(h.timestamp).toLocaleTimeString()}</span>
-                  </div>
-                </div>
-              ));
-            })()}
-            </div>
+            {queryHistory.length > 0 && (
+              <button onClick={clearQueryHistory} className="text-[10px] text-danger/60 hover:text-danger transition-colors cursor-pointer" title="Clear history">Clear</button>
+            )}
           </div>
-        )}
-
-        {tab === 'saved' && (
-          <div className="flex flex-col h-full animate-in fade-in">
-            <div className="flex items-center justify-between px-4 pt-3 pb-2">
-              <div className="flex items-center gap-2 text-accent">
-                <BookMarked className="w-3.5 h-3.5" />
-                <span className="text-[11px] font-bold uppercase tracking-wider">Saved Queries</span>
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto scrollbar-thin px-2 pb-4 flex flex-col gap-1.5">
-              {favorites.length === 0 && (
-                <div className="p-8 text-center opacity-30">
-                  <Star className="w-8 h-8 mx-auto mb-2" />
-                  <p className="text-[10px] uppercase tracking-widest font-bold">No saved queries</p>
-                  <p className="text-[9px] mt-1 text-text-muted">Star queries from History to save them here</p>
-                </div>
+          <div className="px-3 pb-2 flex flex-col gap-2">
+            <div className="relative flex items-center bg-surface-base border border-surface-border rounded-lg px-2.5 py-1.5 focus-within:border-accent/50 transition-colors">
+              <Search className="w-3.5 h-3.5 text-text-muted shrink-0 mr-2" />
+              <input
+                type="text"
+                placeholder="Search history..."
+                value={historySearch}
+                onChange={e => setHistorySearch(e.target.value)}
+                className="flex-1 bg-transparent text-xs text-text-primary placeholder:text-text-muted focus:outline-none"
+              />
+              {historySearch && (
+                <button onClick={() => setHistorySearch('')} className="text-text-muted hover:text-text-primary text-[10px] uppercase font-bold shrink-0 ml-1.5">Clear</button>
               )}
-              {favorites.map((sql, i) => (
-                <div
-                  key={i}
-                  className="group flex flex-col gap-1 p-2.5 rounded-xl border border-surface-border/50 bg-surface-card/30 hover:border-accent/20 hover:bg-surface-card/60 cursor-pointer transition-all"
-                  onClick={() => setPreviewQuery({ sql, name: `Saved Query ${i + 1}` })}
-                  title="Click to preview query"
+            </div>
+            <div className="flex gap-1 p-0.5 bg-surface-base border border-surface-border rounded-xl text-[9px] font-bold">
+              {(['all', 'success', 'failed'] as const).map(status => (
+                <button
+                  key={status}
+                  onClick={() => setHistoryStatusFilter(status)}
+                  className={`flex-1 py-1.5 rounded-lg capitalize transition-all cursor-pointer
+                    ${historyStatusFilter === status ? 'bg-surface-muted text-text-primary border border-surface-border/50 shadow-sm' : 'text-text-muted hover:text-text-primary'}`}
                 >
-                  <div className="flex items-center gap-2">
-                    <Star className="w-3 h-3 text-warning fill-warning shrink-0" />
-                    <pre className="text-[10px] text-text-secondary font-mono truncate flex-1">{sql.replace(/\s+/g, ' ').trim()}</pre>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); removeFavorite(sql); }}
-                      className="opacity-0 group-hover:opacity-100 p-1 hover:text-danger rounded transition-all shrink-0"
-                      title="Delete Saved Query"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
+                  {status}
+                </button>
               ))}
             </div>
           </div>
-        )}
 
-        {tab === 'knowledge' && (
-          <div className="flex flex-col h-full p-4 gap-3 animate-in fade-in">
-            <div className="flex items-center gap-2 text-accent">
-              <BookOpen className="w-4 h-4" />
-              <span className="text-[11px] font-bold uppercase tracking-wider">Business Context</span>
-            </div>
-            <p className="text-[10px] text-text-muted leading-relaxed">
-              Add business rules, column definitions, or specific instructions here. 
-              The agent will use this as a reference for all queries.
-            </p>
-            <textarea
-              value={globalContext}
-              onChange={(e) => setGlobalContext(e.target.value)}
-              placeholder="Example: 'Revenue' is total_amount - discount..."
-              className="flex-1 bg-surface-base/50 border border-surface-border rounded-xl p-3 text-xs text-text-primary focus:outline-none focus:border-accent resize-none placeholder:text-text-muted/50"
-            />
-          </div>
-        )}
+          <div className="flex-1 overflow-y-auto scrollbar-thin px-2 pb-4 flex flex-col gap-1.5">
+            {(() => {
+              const filteredHistory = queryHistory.filter(h => {
+                const term = historySearch.toLowerCase();
+                if (term) {
+                  const matchSql = h.sql.toLowerCase().includes(term);
+                  const matchName = h.cellName?.toLowerCase().includes(term);
+                  if (!matchSql && !matchName) return false;
+                }
+                if (historyStatusFilter === 'success' && !h.success) return false;
+                if (historyStatusFilter === 'failed' && h.success) return false;
+                return true;
+              });
 
-        {tab === 'inspector' && (
-          <div className="flex flex-col h-full p-3.5 gap-3.5 animate-in fade-in scrollbar-thin overflow-y-auto">
-            {/* Header / Refresh */}
-            <div className="flex items-center justify-between border-b border-surface-border/40 pb-2">
-              <div className="flex items-center gap-2 text-accent">
-                <Activity className="w-4 h-4" />
-                <span className="text-[11px] font-bold uppercase tracking-wider">Database Diagnostics</span>
-              </div>
-              <button
-                onClick={refreshInspector}
-                disabled={loadingInspector || !activeConnectionId}
-                className="p-1.5 rounded-lg bg-surface-muted/50 hover:bg-surface-muted border border-surface-border/60 text-text-secondary hover:text-text-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                title="Refresh diagnostics"
+              if (filteredHistory.length === 0) {
+                return (
+                  <div className="p-8 text-center opacity-30">
+                    <Clock className="w-8 h-8 mx-auto mb-2" />
+                    <p className="text-[10px] uppercase tracking-widest font-bold">No history matches</p>
+                  </div>
+                );
+              }
+
+              return filteredHistory.map(h => (
+              <div
+                key={h.id}
+                className="group flex flex-col gap-1 p-2.5 rounded-xl border border-surface-border/50 bg-surface-card/30 hover:border-accent/20 hover:bg-surface-card/60 cursor-pointer transition-all"
+                onClick={() => setPreviewQuery({ sql: h.sql, name: h.cellName || 'History Query' })}
+                title="Click to preview query"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${loadingInspector ? 'animate-spin text-accent' : ''}`} />
-              </button>
-            </div>
+                <div className="flex items-center gap-2">
+                  {h.success
+                    ? <CheckCircle2 className="w-3 h-3 text-success shrink-0" />
+                    : <XCircle className="w-3 h-3 text-danger shrink-0" />}
+                  <span className="text-[10px] font-bold text-text-muted truncate flex-1">{h.cellName}</span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); addFavorite(h.sql); }}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-warning transition-all cursor-pointer"
+                    title="Save query"
+                  >
+                    <Star className="w-3 h-3" />
+                  </button>
+                  <span className="text-[9px] text-text-muted/50 shrink-0">{h.executionMs}ms</span>
+                </div>
+                <pre className="text-[10px] text-text-secondary font-mono truncate bg-surface-base/40 rounded px-2 py-1 max-w-full">{h.sql.replace(/\s+/g, ' ').trim()}</pre>
+                <div className="flex items-center justify-between">
+                  <span className="text-[9px] text-text-muted/60">{h.rowCount} rows</span>
+                  <span className="text-[9px] text-text-muted/50">{new Date(h.timestamp).toLocaleTimeString()}</span>
+                </div>
+              </div>
+            ));
+          })()}
+          </div>
+        </div>
+      )}
 
-            {inspectorError && (
-              <div className="p-3 rounded-xl border border-danger/20 bg-danger/10 text-danger text-[11px] leading-relaxed">
-                {inspectorError}
+      {tab === 'saved' && (
+        <div className="flex flex-col h-full animate-in fade-in">
+          <div className="flex items-center justify-between px-4 pt-3 pb-2">
+            <div className="flex items-center gap-2 text-accent">
+              <BookMarked className="w-3.5 h-3.5" />
+              <span className="text-[11px] font-bold uppercase tracking-wider">Saved Queries</span>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto scrollbar-thin px-2 pb-4 flex flex-col gap-1.5">
+            {favorites.length === 0 && (
+              <div className="p-8 text-center opacity-30">
+                <Star className="w-8 h-8 mx-auto mb-2" />
+                <p className="text-[10px] uppercase tracking-widest font-bold">No saved queries</p>
+                <p className="text-[9px] mt-1 text-text-muted">Star queries from History to save them here</p>
               </div>
             )}
-
-            {!activeConnectionId ? (
-              <div className="p-8 text-center text-text-muted italic text-[11px]">
-                Connect to a database to inspect active sessions, locks, and table disk usage.
+            {favorites.map((sql, i) => (
+              <div
+                key={i}
+                className="group flex flex-col gap-1 p-2.5 rounded-xl border border-surface-border/50 bg-surface-card/30 hover:border-accent/20 hover:bg-surface-card/60 cursor-pointer transition-all"
+                onClick={() => setPreviewQuery({ sql, name: `Saved Query ${i + 1}` })}
+                title="Click to preview query"
+              >
+                <div className="flex items-center gap-2">
+                  <Star className="w-3 h-3 text-warning fill-warning shrink-0" />
+                  <pre className="text-[10px] text-text-secondary font-mono truncate flex-1">{sql.replace(/\s+/g, ' ').trim()}</pre>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); removeFavorite(sql); }}
+                    className="opacity-0 group-hover:opacity-100 p-1 hover:text-danger rounded transition-all shrink-0 cursor-pointer"
+                    title="Delete Saved Query"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
-            ) : (
-              <div className="flex flex-col gap-4 pb-4">
-                {/* 1. TABLE SIZES & ROWS */}
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-1.5 text-text-secondary font-semibold text-[10px] uppercase tracking-wider">
-                    <HardDrive className="w-3.5 h-3.5 text-accent" />
-                    <span>Table Sizes & Row Counts</span>
-                  </div>
-                  <div className="flex flex-col gap-1.5 max-h-[250px] overflow-y-auto scrollbar-thin">
-                    {inspectorStats.length === 0 ? (
-                      <div className="p-4 text-center text-text-muted italic text-[10px] bg-surface-card/20 rounded-xl border border-surface-border/30">
-                        No tables found.
-                      </div>
-                    ) : (
-                      inspectorStats.map((stat, i) => (
-                        <div key={i} className="p-2.5 rounded-xl border border-surface-border/40 bg-surface-card/25 flex flex-col gap-1 hover:border-accent/10 hover:bg-surface-card/50 transition-all">
-                          <div className="flex items-center justify-between">
-                            <span className="font-mono text-xs font-bold text-text-primary truncate max-w-[150px]" title={stat.table_name}>
-                              {stat.table_name}
-                            </span>
-                            <span className="text-[10px] font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded border border-accent/20">
-                              {stat.total_size}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between text-[10px] text-text-muted font-medium">
-                            <span>Rows: {stat.row_count?.toLocaleString() ?? 0}</span>
-                            <div className="flex gap-2 text-[9px] uppercase tracking-wider font-semibold">
-                              <span>Data: {stat.table_size}</span>
-                              <span className="text-text-muted/60">|</span>
-                              <span>Idx: {stat.index_size}</span>
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
+            ))}
+          </div>
+        </div>
+      )}
 
-                {/* 2. ACTIVE DB SESSIONS */}
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 text-text-secondary font-semibold text-[10px] uppercase tracking-wider">
-                      <Activity className="w-3.5 h-3.5 text-success" />
-                      <span>Active Sessions ({inspectorSessions.length})</span>
+      {tab === 'knowledge' && (
+        <div className="flex flex-col h-full p-4 gap-3 animate-in fade-in">
+          <div className="flex items-center gap-2 text-accent">
+            <BookOpen className="w-4 h-4" />
+            <span className="text-[11px] font-bold uppercase tracking-wider">Business Context</span>
+          </div>
+          <p className="text-[10px] text-text-muted leading-relaxed">
+            Add business rules, column definitions, or specific instructions here. 
+            The agent will use this as a reference for all queries.
+          </p>
+          <textarea
+            value={globalContext}
+            onChange={(e) => setGlobalContext(e.target.value)}
+            placeholder="Example: 'Revenue' is total_amount - discount..."
+            className="flex-1 bg-surface-base/50 border border-surface-border rounded-xl p-3 text-xs text-text-primary focus:outline-none focus:border-accent resize-none placeholder:text-text-muted/50"
+          />
+        </div>
+      )}
+
+      {tab === 'inspector' && (
+        <div className="flex flex-col h-full p-3.5 gap-3.5 animate-in fade-in scrollbar-thin overflow-y-auto">
+          {/* Header / Refresh */}
+          <div className="flex items-center justify-between border-b border-surface-border/40 pb-2">
+            <div className="flex items-center gap-2 text-accent">
+              <Activity className="w-4 h-4" />
+              <span className="text-[11px] font-bold uppercase tracking-wider">Database Diagnostics</span>
+            </div>
+            <button
+              onClick={refreshInspector}
+              disabled={loadingInspector || !activeConnectionId}
+              className="p-1.5 rounded-lg bg-surface-muted/50 hover:bg-surface-muted border border-surface-border/60 text-text-secondary hover:text-text-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              title="Refresh diagnostics"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingInspector ? 'animate-spin text-accent' : ''}`} />
+            </button>
+          </div>
+
+          {inspectorError && (
+            <div className="p-3 rounded-xl border border-danger/20 bg-danger/10 text-danger text-[11px] leading-relaxed">
+              {inspectorError}
+            </div>
+          )}
+
+          {!activeConnectionId ? (
+            <div className="p-8 text-center text-text-muted italic text-[11px]">
+              Connect to a database to inspect active sessions, locks, and table disk usage.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4 pb-4">
+              {/* 1. TABLE SIZES & ROWS */}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-1.5 text-text-secondary font-semibold text-[10px] uppercase tracking-wider">
+                  <HardDrive className="w-3.5 h-3.5 text-accent" />
+                  <span>Table Sizes & Row Counts</span>
+                </div>
+                <div className="flex flex-col gap-1.5 max-h-[250px] overflow-y-auto scrollbar-thin">
+                  {inspectorStats.length === 0 ? (
+                    <div className="p-4 text-center text-text-muted italic text-[10px] bg-surface-card/20 rounded-xl border border-surface-border/30">
+                      No tables found.
                     </div>
-                  </div>
-                  <div className="flex flex-col gap-2 max-h-[300px] overflow-y-auto scrollbar-thin">
-                    {inspectorSessions.length === 0 ? (
-                      <div className="p-4 text-center text-text-muted italic text-[10px] bg-surface-card/20 rounded-xl border border-surface-border/30">
-                        No active sessions.
-                      </div>
-                    ) : (
-                      inspectorSessions.map((sess, i) => (
-                        <div key={i} className="p-2.5 rounded-xl border border-surface-border/40 bg-surface-card/25 flex flex-col gap-2 hover:border-accent/10 hover:bg-surface-card/50 transition-all group/sess relative">
-                          <div className="flex items-start justify-between gap-1">
-                            <div className="flex flex-col">
-                              <span className="text-[10px] font-bold text-text-primary">
-                                PID: {sess.pid} <span className="text-text-muted font-normal">({sess.user}@{sess.client || 'local'})</span>
-                              </span>
-                              <span className="text-[9px] text-text-muted font-mono mt-0.5">
-                                {sess.start_time} • state: <span className="text-success font-semibold">{sess.state}</span>
-                              </span>
-                            </div>
-                            {sess.user !== 'local' && (
-                              <button
-                                onClick={() => {
-                                  if (confirm(`Are you sure you want to terminate session PID ${sess.pid}?`)) {
-                                    handleTerminateSession(sess.pid);
-                                  }
-                                }}
-                                className="p-1 hover:text-danger rounded hover:bg-danger/10 transition-all shrink-0 cursor-pointer"
-                                title="Terminate/Kill Session"
-                              >
-                                <XCircle className="w-3.5 h-3.5" />
-                              </button>
-                            )}
+                  ) : (
+                    inspectorStats.map((stat, i) => (
+                      <div key={i} className="p-2.5 rounded-xl border border-surface-border/40 bg-surface-card/25 flex flex-col gap-1 hover:border-accent/10 hover:bg-surface-card/50 transition-all">
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono text-xs font-bold text-text-primary truncate max-w-[150px]" title={stat.table_name}>
+                            {stat.table_name}
+                          </span>
+                          <span className="text-[10px] font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded border border-accent/20">
+                            {stat.total_size}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-[10px] text-text-muted font-medium">
+                          <span>Rows: {stat.row_count?.toLocaleString() ?? 0}</span>
+                          <div className="flex gap-2 text-[9px] uppercase tracking-wider font-semibold">
+                            <span>Data: {stat.table_size}</span>
+                            <span className="text-text-muted/60">|</span>
+                            <span>Idx: {stat.index_size}</span>
                           </div>
-                          {sess.query && (
-                            <div className="bg-surface-base/60 p-1.5 rounded-lg border border-surface-border/30">
-                              <pre className="text-[9px] font-mono text-text-secondary whitespace-pre-wrap truncate max-h-[60px] overflow-y-auto scrollbar-thin">
-                                {sess.query}
-                              </pre>
-                            </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* 2. ACTIVE DB SESSIONS */}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-text-secondary font-semibold text-[10px] uppercase tracking-wider">
+                    <Activity className="w-3.5 h-3.5 text-success" />
+                    <span>Active Sessions ({inspectorSessions.length})</span>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2 max-h-[300px] overflow-y-auto scrollbar-thin">
+                  {inspectorSessions.length === 0 ? (
+                    <div className="p-4 text-center text-text-muted italic text-[10px] bg-surface-card/20 rounded-xl border border-surface-border/30">
+                      No active sessions.
+                    </div>
+                  ) : (
+                    inspectorSessions.map((sess, i) => (
+                      <div key={i} className="p-2.5 rounded-xl border border-surface-border/40 bg-surface-card/25 flex flex-col gap-2 hover:border-accent/10 hover:bg-surface-card/50 transition-all group/sess relative">
+                        <div className="flex items-start justify-between gap-1">
+                          <div className="flex flex-col">
+                            <span className="text-[10px] font-bold text-text-primary">
+                              PID: {sess.pid} <span className="text-text-muted font-normal">({sess.user}@{sess.client || 'local'})</span>
+                            </span>
+                            <span className="text-[9px] text-text-muted font-mono mt-0.5">
+                              {sess.start_time} • state: <span className="text-success font-semibold">{sess.state}</span>
+                            </span>
+                          </div>
+                          {sess.user !== 'local' && (
+                            <button
+                              onClick={() => {
+                                if (confirm(`Are you sure you want to terminate session PID ${sess.pid}?`)) {
+                                  handleTerminateSession(sess.pid);
+                                }
+                              }}
+                              className="p-1 hover:text-danger rounded hover:bg-danger/10 transition-all shrink-0 cursor-pointer"
+                              title="Terminate/Kill Session"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                            </button>
                           )}
                         </div>
-                      ))
-                    )}
+                        {sess.query && (
+                          <div className="bg-surface-base/60 p-1.5 rounded-lg border border-surface-border/30">
+                            <pre className="text-[9px] font-mono text-text-secondary whitespace-pre-wrap truncate max-h-[60px] overflow-y-auto scrollbar-thin">
+                              {sess.query}
+                            </pre>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* 3. ACTIVE LOCKS */}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-1.5 text-text-secondary font-semibold text-[10px] uppercase tracking-wider">
+                  <Lock className="w-3.5 h-3.5 text-warning" />
+                  <span>Active Database Locks ({inspectorLocks.length})</span>
+                </div>
+                <div className="flex flex-col gap-1.5 max-h-[200px] overflow-y-auto scrollbar-thin">
+                  {inspectorLocks.length === 0 ? (
+                    <div className="p-4 text-center text-text-muted italic text-[10px] bg-surface-card/20 rounded-xl border border-surface-border/30">
+                      No active table locks.
+                    </div>
+                  ) : (
+                    inspectorLocks.map((lock, i) => (
+                      <div key={i} className="p-2.5 rounded-xl border border-surface-border/40 bg-surface-card/25 flex flex-col gap-1 hover:border-accent/10 hover:bg-surface-card/50 transition-all">
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono text-xs font-bold text-text-primary truncate max-w-[150px]">
+                            {lock.table_name}
+                          </span>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${lock.granted ? 'bg-success/10 text-success border-success/20' : 'bg-warning/10 text-warning border-warning/20'}`}>
+                            {lock.granted ? 'GRANTED' : 'WAITING'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-[9px] text-text-muted font-medium">
+                          <span>Mode: {lock.mode}</span>
+                          <span>PID: {lock.pid} ({lock.user})</span>
+                        </div>
+                        {lock.query && (
+                          <pre className="text-[8px] font-mono text-text-muted bg-surface-base/30 p-1 rounded border border-surface-border/20 truncate">
+                            {lock.query}
+                          </pre>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+
+  // ── COLLAPSED SIDEBAR RAIL VIEW ──────────────────────────────────────────────
+  if (isSidebarCollapsed) {
+    return (
+      <>
+        <aside 
+          className="flex flex-col h-full bg-surface-base border-r border-surface-border backdrop-blur-2xl transition-all duration-300 select-none shadow-2xl z-10 items-center py-3 justify-between relative"
+          style={{ width: 64 }}
+        >
+          {/* Top: Brand Logo & Expand toggle */}
+          <div className="flex flex-col items-center gap-3">
+            <button
+              onClick={toggleSidebarCollapsed}
+              className="p-2 rounded-xl bg-accent/10 border border-accent/25 hover:bg-accent/20 text-accent transition-all cursor-pointer group"
+              title="Expand Sidebar"
+            >
+              <PanelLeftOpen className="w-4 h-4 text-accent group-hover:scale-110 transition-transform" />
+            </button>
+            
+            <div className="w-7 h-[1px] bg-surface-border" />
+
+            {/* Quick ER Diagram Trigger in Rail */}
+            <button
+              onClick={() => useAppStore.getState().setShowSchemaDiagram(true)}
+              className="p-2.5 rounded-xl bg-accent/15 border border-accent/30 text-accent hover:bg-accent/25 transition-all cursor-pointer"
+              title="Open Visual ER Diagram Map"
+            >
+              <Layout className="w-4 h-4" />
+            </button>
+
+            {/* Connection status icon */}
+            <div 
+              className="p-2 rounded-xl bg-surface-card border border-surface-border text-text-muted cursor-pointer hover:border-accent/40 transition-colors"
+              onClick={() => setShowConnModal(true)}
+              title={activeConnectionId ? "Database Connected (Click to manage)" : "No DB Connected (Click to add)"}
+            >
+              <Database className={`w-4 h-4 ${activeConnectionId ? 'text-success' : 'text-text-muted'}`} />
+            </div>
+          </div>
+
+          {/* Middle: Tab Icon Rail (Clicks pop up floating drawer window!) */}
+          <div className="flex flex-col items-center gap-2.5 my-auto">
+            {([
+              { id: 'schema', label: 'Tables', icon: Table },
+              { id: 'history', label: 'History', icon: Clock },
+              { id: 'saved', label: 'Saved', icon: Star },
+              { id: 'knowledge', label: 'Rules', icon: BookMarked },
+              { id: 'inspector', label: 'Inspect', icon: Activity },
+            ] as const).map((t) => {
+              const Icon = t.icon;
+              const isPopupOpen = activeRailPopup === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => {
+                    if (activeRailPopup === t.id) {
+                      setActiveRailPopup(null);
+                    } else {
+                      setTab(t.id);
+                      setActiveRailPopup(t.id);
+                    }
+                  }}
+                  className={`p-2.5 rounded-xl transition-all relative group border cursor-pointer
+                    ${isPopupOpen 
+                      ? 'bg-accent/25 text-accent border-accent/60 shadow-lg ring-2 ring-accent/20 scale-105' 
+                      : 'text-text-muted hover:text-text-primary hover:bg-surface-hover border-transparent'}`}
+                  title={`${t.label} (Click for quick popup)`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {isPopupOpen && (
+                    <div className="absolute right-[-4px] top-1/2 -translate-y-1/2 w-1.5 h-4 bg-accent rounded-l-full shadow-glow" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Bottom: Settings & Expand */}
+          <div className="flex flex-col items-center gap-2 pt-2 border-t border-surface-border w-full px-2">
+            <button
+              onClick={() => setShowSettingsModal(true)}
+              className="p-2.5 rounded-xl hover:bg-surface-hover text-text-muted hover:text-text-primary transition-all cursor-pointer border border-transparent hover:border-surface-border"
+              title="Preferences & Settings"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+
+            <button
+              onClick={toggleSidebarCollapsed}
+              className="p-2.5 rounded-xl hover:bg-accent/10 text-text-muted hover:text-accent transition-all cursor-pointer border border-transparent hover:border-accent/20"
+              title="Expand Sidebar"
+            >
+              <PanelLeftOpen className="w-4 h-4" />
+            </button>
+          </div>
+        </aside>
+
+        {/* ── FLOATING POPUP DRAWER WINDOW (Jump-out animation from clicked icon) ── */}
+        {activeRailPopup && (
+          <div 
+            className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-[2px] animate-in fade-in duration-150"
+            onClick={() => setActiveRailPopup(null)}
+          >
+            <div
+              key={activeRailPopup}
+              className="fixed left-[76px] top-1/2 -translate-y-1/2 h-[68vh] w-[370px] max-w-[90vw] bg-surface-card border border-surface-border rounded-2xl shadow-2xl backdrop-blur-2xl flex flex-col z-[70] overflow-hidden animate-macos-dock select-none"
+              style={{
+                transformOrigin: `0% ${
+                  activeRailPopup === 'schema' ? 25 :
+                  activeRailPopup === 'history' ? 37.5 :
+                  activeRailPopup === 'saved' ? 50 :
+                  activeRailPopup === 'knowledge' ? 62.5 : 75
+                }%`
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Drawer Floating Header */}
+              <div className="px-4 py-3 border-b border-surface-border bg-surface-muted/90 flex items-center justify-between sticky top-0 z-10">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-1.5 rounded-lg bg-accent/15 border border-accent/30 text-accent">
+                    {activeRailPopup === 'schema' && <Table className="w-4 h-4" />}
+                    {activeRailPopup === 'history' && <Clock className="w-4 h-4" />}
+                    {activeRailPopup === 'saved' && <Star className="w-4 h-4" />}
+                    {activeRailPopup === 'knowledge' && <BookMarked className="w-4 h-4" />}
+                    {activeRailPopup === 'inspector' && <Activity className="w-4 h-4" />}
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-text-primary capitalize tracking-wide">
+                      {activeRailPopup === 'schema' && 'Database Tables'}
+                      {activeRailPopup === 'history' && 'Query History'}
+                      {activeRailPopup === 'saved' && 'Saved Queries'}
+                      {activeRailPopup === 'knowledge' && 'Business Rules'}
+                      {activeRailPopup === 'inspector' && 'DB Diagnostics'}
+                    </h3>
+                    <p className="text-[9px] text-text-muted">Quick Pop-up View • Rail Mode</p>
                   </div>
                 </div>
 
-                {/* 3. ACTIVE LOCKS */}
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-1.5 text-text-secondary font-semibold text-[10px] uppercase tracking-wider">
-                    <Lock className="w-3.5 h-3.5 text-warning" />
-                    <span>Active Database Locks ({inspectorLocks.length})</span>
-                  </div>
-                  <div className="flex flex-col gap-1.5 max-h-[200px] overflow-y-auto scrollbar-thin">
-                    {inspectorLocks.length === 0 ? (
-                      <div className="p-4 text-center text-text-muted italic text-[10px] bg-surface-card/20 rounded-xl border border-surface-border/30">
-                        No active table locks.
-                      </div>
-                    ) : (
-                      inspectorLocks.map((lock, i) => (
-                        <div key={i} className="p-2.5 rounded-xl border border-surface-border/40 bg-surface-card/25 flex flex-col gap-1 hover:border-accent/10 hover:bg-surface-card/50 transition-all">
-                          <div className="flex items-center justify-between">
-                            <span className="font-mono text-xs font-bold text-text-primary truncate max-w-[150px]">
-                              {lock.table_name}
-                            </span>
-                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${lock.granted ? 'bg-success/10 text-success border-success/20' : 'bg-warning/10 text-warning border-warning/20'}`}>
-                              {lock.granted ? 'GRANTED' : 'WAITING'}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between text-[9px] text-text-muted font-medium">
-                            <span>Mode: {lock.mode}</span>
-                            <span>PID: {lock.pid} ({lock.user})</span>
-                          </div>
-                          {lock.query && (
-                            <pre className="text-[8px] font-mono text-text-muted bg-surface-base/30 p-1 rounded border border-surface-border/20 truncate">
-                              {lock.query}
-                            </pre>
-                          )}
-                        </div>
-                      ))
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => {
+                      setActiveRailPopup(null);
+                      toggleSidebarCollapsed();
+                    }}
+                    className="p-1.5 rounded-lg hover:bg-surface-hover text-text-muted hover:text-accent transition-all text-[10px] font-semibold flex items-center gap-1 cursor-pointer"
+                    title="Expand Full Sidebar"
+                  >
+                    <PanelLeftOpen className="w-3.5 h-3.5" />
+                    <span>Expand</span>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveRailPopup(null)}
+                    className="p-1.5 rounded-lg hover:bg-danger/15 text-text-muted hover:text-danger transition-colors cursor-pointer"
+                    title="Close Popup (ESC)"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Drawer Content */}
+              <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin bg-surface-base/70">
+                {renderTabContent()}
+              </div>
+
+              {/* Drawer Floating Footer */}
+              <div className="px-4 py-2.5 border-t border-surface-border bg-surface-muted/80 flex items-center justify-between text-[10px]">
+                <button
+                  onClick={() => {
+                    setActiveRailPopup(null);
+                    useAppStore.getState().setShowSchemaDiagram(true);
+                  }}
+                  className="flex items-center gap-1.5 text-accent hover:underline font-bold cursor-pointer"
+                >
+                  <Layout className="w-3.5 h-3.5" />
+                  <span>Open Full ER Map</span>
+                </button>
+
+                <span className="text-[9px] font-mono text-text-muted/60">ESC to close</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  // ── EXPANDED SIDEBAR VIEW ────────────────────────────────────────────────────
+  return (
+    <aside 
+      className="flex flex-col h-full bg-surface-base border-r border-surface-border backdrop-blur-2xl transition-all duration-300 select-none shadow-2xl z-10"
+      style={{ width }}
+    >
+      {/* App Header */}
+      <div className="px-4 py-3 border-b border-surface-border flex items-center justify-between bg-surface-card/80">
+        <div className="flex items-center gap-2">
+          <img src="/NewLogo.png" className="h-8 w-auto object-contain" alt="NivexQL Logo" />
+          <div className="flex items-center gap-1.5 ml-1">
+            <div className={`w-1.5 h-1.5 rounded-full ${activeConnectionId ? 'bg-success animate-pulse' : 'bg-text-muted/40'}`} />
+            <span className="text-[10px] text-text-muted font-bold uppercase tracking-widest">Workbench</span>
+          </div>
+        </div>
+
+        <button
+          onClick={toggleSidebarCollapsed}
+          className="p-1.5 rounded-lg hover:bg-[#151a28] text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+          title="Collapse Sidebar"
+        >
+          <PanelLeftClose className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Prominent Primary Quick Action Trigger Bar (Zero Hunting for ER Diagram) */}
+      <div className="p-3 border-b border-surface-border bg-surface-muted/80 flex items-center gap-2">
+        <button
+          onClick={() => useAppStore.getState().setShowSchemaDiagram(true)}
+          className="flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-accent/15 hover:bg-accent/25 border border-accent/40 hover:border-accent/60 text-accent text-xs font-bold transition-all shadow-sm cursor-pointer group"
+          title="Open Interactive ER Diagram Visual Map"
+        >
+          <Layout className="w-4 h-4 text-accent group-hover:scale-110 transition-transform" />
+          <span>Visual ER Map</span>
+        </button>
+
+        <button
+          onClick={() => setShowConnModal(true)}
+          className="flex items-center justify-center p-2 rounded-xl bg-surface-card hover:bg-surface-hover border border-surface-border hover:border-text-muted/40 text-text-muted hover:text-text-primary transition-all cursor-pointer shrink-0"
+          title="Connect New Database"
+        >
+          <Plus className="w-4 h-4 text-accent" />
+        </button>
+      </div>
+
+      {/* Active Database Summary Bar */}
+      <div className="px-3 py-2 border-b border-surface-border bg-surface-base">
+        {activeConn ? (
+          <div className="flex flex-col gap-1.5 p-2 rounded-xl bg-surface-card border border-surface-border">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="p-1 rounded-lg bg-accent/15">
+                  <Database className="w-3.5 h-3.5 text-accent shrink-0" />
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-bold text-text-primary truncate">{activeConn.label}</span>
+                    {activeConn.use_ssh && (
+                      <span className="flex items-center gap-0.5 bg-warning/10 text-warning border border-warning/20 px-1 py-0.5 text-[7px] font-bold uppercase rounded shrink-0">
+                        <Shield className="w-2.5 h-2.5" />
+                        SSH
+                      </span>
                     )}
                   </div>
+                  <span className="text-[9px] text-text-muted uppercase tracking-wider truncate">{activeConn.dialect} • {activeConn.database}</span>
                 </div>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={() => setShowConnModal(true)}
+                  className="text-[9px] font-bold text-text-muted hover:text-accent px-1.5 py-1 rounded bg-surface-muted border border-surface-border transition-colors cursor-pointer"
+                  title="Add or manage database connections"
+                >
+                  + Add
+                </button>
+                <button
+                  onClick={() => {
+                    if (activeConn && confirm(`Remove database connection "${activeConn.label}"?`)) {
+                      removeConnection(activeConn.id);
+                    }
+                  }}
+                  className="text-[9px] font-bold text-danger/80 hover:text-danger hover:bg-danger/10 px-1.5 py-1 rounded border border-danger/20 transition-colors cursor-pointer flex items-center gap-0.5"
+                  title="Disconnect and remove database"
+                >
+                  <Trash2 className="w-2.5 h-2.5" />
+                  <span>Remove</span>
+                </button>
+              </div>
+            </div>
+            
+            {/* Quick switcher if multiple connections exist */}
+            {connections.length > 1 && (
+              <div className="flex items-center gap-1 pt-1.5 border-t border-surface-border overflow-x-auto scrollbar-hide">
+                {connections.map(c => (
+                  <div key={c.id} className="relative flex items-center shrink-0 group">
+                    <button
+                      onClick={() => handleSelectConn(c.id)}
+                      className={`text-[9px] font-semibold pl-2 pr-4 py-0.5 rounded-lg border transition-all truncate max-w-[100px] cursor-pointer
+                        ${c.id === activeConnectionId 
+                          ? 'bg-accent/20 text-accent border-accent/40 font-bold' 
+                          : 'bg-surface-muted text-text-muted hover:text-text-primary border-surface-border'}`}
+                      title={`Switch to ${c.label}`}
+                    >
+                      {c.label}
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm(`Remove connection "${c.label}"?`)) {
+                          removeConnection(c.id);
+                        }
+                      }}
+                      className="absolute right-0.5 text-text-muted hover:text-danger p-0.5 rounded transition-colors opacity-60 hover:opacity-100"
+                      title={`Remove ${c.label}`}
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
+        ) : (
+          <button
+            onClick={() => setShowConnModal(true)}
+            className="w-full flex items-center justify-center gap-2 p-2 rounded-xl border border-dashed border-surface-border hover:border-accent/40 bg-surface-card text-text-muted hover:text-accent text-[11px] font-medium transition-all cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5 text-accent" />
+            <span>Connect Database</span>
+          </button>
         )}
       </div>
 
-      {/* Sidebar Footer */}
-      <div className="p-4 bg-surface-base/50 border-t border-surface-border">
-        <div className="flex items-center justify-between text-[9px] text-text-muted font-bold uppercase tracking-widest mb-3">
-          <span>Settings & Status</span>
-          <div className="flex items-center gap-1.5">
-            <div className="w-1 h-1 rounded-full bg-success animate-pulse" />
-            <span className="text-success">Live</span>
-          </div>
+      {/* Sidebar Navigation Tabs */}
+      <div className="px-3 py-2 border-b border-surface-border bg-surface-base">
+        <div className="flex bg-surface-card p-1 rounded-xl border border-surface-border gap-1">
+          {([
+            { id: 'schema', label: 'Tables', icon: Table },
+            { id: 'history', label: 'History', icon: Clock },
+            { id: 'saved', label: 'Saved', icon: Star },
+            { id: 'knowledge', label: 'Rules', icon: BookMarked },
+            { id: 'inspector', label: 'Inspect', icon: Activity },
+          ] as const).map((t) => {
+            const Icon = t.icon;
+            const isActive = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className={`flex-1 flex flex-col items-center justify-center py-1.5 rounded-lg transition-all duration-200 relative group border cursor-pointer
+                  ${isActive 
+                    ? 'bg-accent/15 text-accent border-accent/35 shadow-sm font-semibold' 
+                    : 'text-text-muted hover:text-text-primary hover:bg-surface-hover border-transparent'}`}
+                title={t.label}
+              >
+                <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-accent' : 'text-text-muted'} transition-transform group-hover:scale-105 duration-200`} />
+                <span className="text-[8px] font-bold uppercase tracking-wider mt-0.5">
+                  {t.label}
+                </span>
+              </button>
+            );
+          })}
         </div>
-        <div className="flex items-center justify-between">
-          <button
-            onClick={() => setShowSettingsModal(true)}
-            className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-surface-muted transition-colors text-text-muted hover:text-text-primary w-full justify-center border border-dashed border-surface-border/60"
-            title="Open system preferences"
-          >
-            <Settings className="w-4 h-4" />
-            <span className="text-[10px] font-semibold uppercase tracking-widest">Preferences</span>
-          </button>
-        </div>
+      </div>
+
+      {/* Tab Content */}
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
+        {renderTabContent()}
+      </div>
+
+      {/* Clean Sidebar Footer */}
+      <div className="px-3 py-2.5 bg-surface-base border-t border-surface-border flex items-center justify-between gap-1.5">
+        <button
+          onClick={() => setShowSettingsModal(true)}
+          className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl bg-surface-card hover:bg-surface-hover border border-surface-border hover:border-text-muted/30 text-text-muted hover:text-text-primary text-[10px] font-semibold transition-all cursor-pointer"
+          title="Open system preferences"
+        >
+          <Settings className="w-3.5 h-3.5 text-text-muted" />
+          <span>Preferences</span>
+        </button>
+
+        <button
+          onClick={toggleSidebarCollapsed}
+          className="p-1.5 rounded-xl bg-surface-card hover:bg-surface-hover border border-surface-border text-text-muted hover:text-text-primary transition-all cursor-pointer"
+          title="Collapse Sidebar"
+        >
+          <PanelLeftClose className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Query Preview Modal */}

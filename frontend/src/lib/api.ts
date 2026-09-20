@@ -1,4 +1,4 @@
-const BASE = 'http://127.0.0.1:8081';
+export const BASE = (import.meta.env.VITE_BACKEND_URL as string) || 'http://127.0.0.1:8082';
 
 export async function apiConnectServer(cfg: {
   host?: string;
@@ -106,18 +106,26 @@ export async function apiFavorites(): Promise<{ queries: string[] }> {
   return res.json();
 }
 
-export async function apiLlmStatus(): Promise<{
+export async function apiLlmStatus(provider?: string, endpoint?: string): Promise<{
   status: string; provider: string; endpoint?: string; models: string[];
 }> {
-  const res = await fetch(`${BASE}/api/llm/status`);
+  const params = new URLSearchParams();
+  if (provider) params.append('provider', provider);
+  if (endpoint) params.append('endpoint', endpoint);
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(`${BASE}/api/llm/status${query}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
-export async function apiLlmModels(): Promise<{
+export async function apiLlmModels(provider?: string, endpoint?: string): Promise<{
   models: { name: string; size: number; modified: string }[];
 }> {
-  const res = await fetch(`${BASE}/api/llm/models`);
+  const params = new URLSearchParams();
+  if (provider) params.append('provider', provider);
+  if (endpoint) params.append('endpoint', endpoint);
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(`${BASE}/api/llm/models${query}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
@@ -210,5 +218,15 @@ export async function apiPlanNiches(schema: unknown, context: string = ""): Prom
     throw new Error(err.detail ?? 'Failed to plan niches');
   }
   return res.json();
+}
+
+export async function apiExportData(formatType: 'csv' | 'json', columns: string[], rows: any[][]): Promise<Blob> {
+  const res = await fetch(`${BASE}/api/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ format: formatType, columns, rows }),
+  });
+  if (!res.ok) throw new Error('Export failed');
+  return res.blob();
 }
 

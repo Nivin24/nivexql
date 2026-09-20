@@ -1,28 +1,97 @@
-# 🌌 NivexQL (Agentic SQL Analytics Platform)
+# NivexQL: Privacy-First Agentic SQL Analytics Platform
 
-An entirely local, highly interactive, and beautifully designed SQL Analytics Notebook powered by Local LLMs. **NivexQL** allows data analysts and engineers to generate, execute, and visualize complex SQL queries entirely via natural language—without ever sending your sensitive database schema or data to cloud APIs.
+NivexQL is an enterprise-grade, local-first SQL analytics environment that combines cell-based notebook ergonomics with agentic artificial intelligence. Designed for data analysts, analytics engineers, and data leaders, NivexQL allows users to query, analyze, and visualize complex relational databases through natural language interaction and automated SQL generation—without transferring database schemas or query results outside the local environment.
 
 ---
 
-## ✨ Why NivexQL?
+## Executive Overview and Vision
 
-Traditional SQL clients are built for DBAs, not for rapid analytical workflows. NivexQL brings the ergonomics of a Jupyter Notebook and merges it with Agentic AI. 
+Traditional database administration tools and SQL IDEs are designed primarily for transactional operations rather than rapid analytical discovery and executive narrative building. Conversely, cloud-hosted AI SQL assistants often require transferring sensitive database schema definitions, metadata, and query samples to external cloud APIs, violating enterprise data governance and privacy policies.
 
-- **100% Private & Local**: Runs entirely on your hardware using Ollama / MLX. Your database credentials, schema, and query results never leave your machine.
-- **Notebook Ergonomics**: Build your analytical narrative cell by cell. Drag and drop to reorder, pin important dashboards to the top, and organize your flow.
-- **Agentic Auto-Correction**: If a generated query fails against your schema, the Agent intercepts the PostgreSQL error, fixes the syntax, and re-executes automatically.
-- **Business Context**: Teach the agent your specific business logic ("Revenue = Price - Discount") in the Context tab, and it will apply those rules to all future queries.
+NivexQL resolves this fundamental tradeoff by combining three core principles:
+1. Absolute Privacy: Zero data persistence and 100% local inference utilizing local Large Language Models (LLMs) via Ollama.
+2. Interactive Analytical Ergonomics: Cell-wise execution, flexible split grids, visual query profiling, and dynamic chart recommendations.
+3. Executive Presentation Quality: Built-in theme marketplace supporting light and dark modes tailored for client deliverables.
 
-## 🚀 Quick Start
+---
 
-### 1. Prerequisites
-- **Node.js** (v18+)
-- **Python** (3.10+)
-- **Ollama** (Running locally on `http://localhost:11434` with `qwen2.5-coder:7b` or `llama3`)
-- **PostgreSQL** (Your target database)
+## Conceptual Origins
 
-### 2. Backend Setup
-The backend is a stateless FastAPI server that handles database connections and LLM orchestration.
+The concept behind NivexQL emerged from analyzing the operational gaps between four distinct software paradigms:
+
+1. Interactive Computational Notebooks (Jupyter, Hex, Deepnote): The cell-based execution flow that allows analysts to construct step-by-step analytical narratives rather than running isolated SQL queries in a single window.
+2. Production Database Administration Clients (DataGrip, DBeaver): The deep schema inspection, session management, and multi-dialect database connectivity required for production database systems.
+3. Autonomous AI Coding Assistants: The capability to not only generate code from natural language prompts, but to autonomously inspect execution errors, perform differential comparison, and re-execute auto-fixed SQL queries.
+4. Executive Dashboard Systems: High-contrast, presentation-ready design frameworks (such as Donezo Forest Light and Obsidian Dark) that allow technical outputs to be transformed directly into stakeholder-facing deliverables without third-party design tools.
+
+---
+
+## Core Capabilities
+
+### 1. Local Agentic SQL Engine
+- Natural Language to SQL Translation: Converts plain language questions into optimized dialect-specific SQL queries.
+- Autonomous Auto-Correction: Detects database execution errors (syntax errors, missing columns, invalid joins), analyzes the database error message, generates an auto-fix diff, and re-executes the query without manual intervention.
+- Performance Profiling: Runs query explain plans (`EXPLAIN` and `EXPLAIN ANALYZE`) to provide execution metrics and performance optimization insights.
+
+### 2. Cell-Based Notebook Workspace
+- Multi-Cell Execution: Independent execution state, pinned cells, drag-and-drop cell reordering, and cell history versioning.
+- Split-Pane Interface: Resizable side-by-side layout pairing code editors, AI chat assistants, and version diffs directly alongside data tables, pivot views, and visualizations.
+- Monaco Editor Integration: Full SQL syntax highlighting, auto-completion, formatting, and theme synchronization.
+
+### 3. Automated Data Visualization
+- D3.js Visualization Engine: Native rendering of bar charts, line graphs, area charts, scatter plots, pie charts, heatmaps, treemaps, and combo charts.
+- Intelligent Chart Recommendation: Automatically inspects query result column data types and cardinality to select the optimal visualization style.
+- Interactive Pivot & Data Grid: Client-side sorting, pagination, global filtering, and CSV/JSON export capabilities.
+
+### 4. Dynamic Theme Marketplace
+- Theme Adaptation: Supports five distinct themes (Donezo Forest Light, Obsidian Dark, Cosmic Indigo, Executive Light, and Cyberpunk Neon).
+- Full Theme Sync: Every interface element—sidebar, cell header, Monaco editor instance, tab bar, and data visualization—synchronizes automatically to the selected theme token variables.
+
+### 5. Multi-Dialect & SSH Connectivity
+- Supported Dialects: Native support for PostgreSQL, MySQL, and SQLite.
+- SSH Tunneling: Built-in support for connecting to remote database instances behind Bastion hosts via encrypted SSH tunnels.
+- Live Database Inspection: Real-time table statistics, size breakdowns, row count tracking, lock inspection, and active connection termination.
+
+---
+
+## Security and Privacy Architecture
+
+NivexQL operates under a strict Zero Data Persistence architecture:
+- Local LLM Execution: All prompt evaluation and query generation are executed locally via Ollama endpoints (`http://localhost:11434`).
+- No External Telemetry: Database credentials, connection strings, schema definitions, and query results remain strictly within local system memory.
+- Ephemeral Application State: Session configurations, schema trees, and history reside in application memory and local storage, ensuring complete isolation from third-party servers.
+
+---
+
+## Technical Stack
+
+### Frontend
+- Core Framework: React 19, TypeScript, Vite
+- State Management: Zustand (with JSON persistence)
+- Code Editor: Monaco Editor
+- Styling: Vanilla CSS custom properties (Design Tokens) and Tailwind CSS
+- Data Visualization: D3.js (Native SVG/Canvas rendering)
+- Iconography: Lucide React
+
+### Backend
+- Framework: Python 3.10+, FastAPI, Uvicorn
+- Database Engine: SQLAlchemy, PyMySQL, psycopg2-binary
+- LLM Integration: LangChain / Ollama API client
+
+---
+
+## Getting Started
+
+### Prerequisites
+- Node.js (v18.0.0 or higher)
+- Python (v3.10 or higher)
+- Ollama (Running locally with models such as `qwen2.5-coder` or `llama3`)
+- Target Database (PostgreSQL, MySQL, or SQLite instance)
+
+### 1. Backend Service Setup
+
+Navigate to the backend directory, configure the Python environment, and start the FastAPI service:
+
 ```bash
 cd backend
 python -m venv venv
@@ -30,36 +99,37 @@ source venv/bin/activate
 pip install -r requirements.txt
 python main.py
 ```
-*Server runs on `http://127.0.0.1:8081`*
 
-### 3. Frontend Setup
-The frontend is a React 19 + Vite application (electron-ready) using Tailwind CSS.
+Alternatively, launch directly via Uvicorn:
+
+```bash
+uvicorn main:app --reload --port 8082
+```
+
+The backend API server will run on `http://127.0.0.1:8082`.
+
+### 2. Frontend Application Setup
+
+In a separate terminal window, navigate to the frontend directory, install dependencies, and start the development server:
+
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-*App runs on `http://localhost:5173`*
 
-## 🛠 Tech Stack
-
-- **Frontend**: React 19, Vite, Tailwind CSS, Zustand, Monaco Editor, Lucide Icons.
-- **Visualizations**: D3.js (Native).
-- **Backend**: Python, FastAPI, SQLAlchemy, LangChain/Ollama integrations.
-- **Design System**: Glassmorphism, 100vh/100vw responsive layout, custom `nvn-dark` theme.
-
-## 📚 Documentation
-
-Detailed documentation on how to maximize your workflow with NivexQL can be found in the `/DOCS` directory:
-
-1. [Features & Usage Guide](./DOCS/FEATURES_AND_USAGE.md) - Learn how to use Drill-downs, Cell Pinning, and AI Context.
-2. [Architecture Overview](./DOCS/ARCHITECTURE.md) - Understand the stateless design and agentic execution loop.
-
-## 🗺 Roadmap
-
-- **Phase 1 (Complete)**: Core UI, Notebook Ergonomics, Drag/Drop, Table Filtering, Split Panes.
-- **Phase 2 (In Progress)**: Local Persistence, Multi-turn Chat Mode.
-- **Phase 3 (Upcoming)**: Interactive Pivot Tables, Fullscreen Dashboards, SSH Tunnels.
+The web interface will launch on `http://localhost:5188`.
 
 ---
-*Built for speed. Built for privacy. Built for local hardware.*
+
+## Development Roadmap
+
+- Phase 1 (Completed): Core Cell Execution Model, Drag-and-Drop Notebook Grid, Agentic SQL Auto-Fix Engine, D3 Visualization Engine, Theme Marketplace, Multi-Dialect Support.
+- Phase 2 (Current Focus): Advanced Multi-Turn AI Chat Sessions, Custom Business Context Definitions, Local Session Export/Import.
+- Phase 3 (Planned): Embedded Python Execution Cells, Cross-Database Federated Queries, Automated PDF/HTML Report Generation.
+
+---
+
+## License
+
+Copyright (c) 2026 NivexQL. All rights reserved.

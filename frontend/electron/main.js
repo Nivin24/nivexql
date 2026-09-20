@@ -21,7 +21,7 @@ function startBackend() {
   backendProcess = spawn(binaryPath, [], {
     env: { 
       ...process.env, 
-      NIVEXQL_PORT: '8081',
+      NIVEXQL_PORT: process.env.NIVEXQL_PORT || '8082',
       PYTHONUNBUFFERED: '1'
     }
   });
@@ -47,7 +47,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
-    icon: path.join(__dirname, '../public/logo.png'),
+    icon: path.join(__dirname, '../public/NewLogo.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,

@@ -66,12 +66,10 @@ export default function LlmSettingsPanel() {
     setChecking(true);
     setErrorMsg('');
     try {
-      // Temporarily set config on backend to check status
-      await apiSetLlmConfig(localProvider, localEndpoint, localModel, localApiKey);
-      const data = await apiLlmStatus();
+      const data = await apiLlmStatus(localProvider, localEndpoint);
       setLlmStatus(data.status === 'ok' ? 'ok' : 'error');
       
-      const { models: mdls } = await apiLlmModels();
+      const { models: mdls } = await apiLlmModels(localProvider, localEndpoint);
       setModels(mdls);
       
       if (mdls.length && !mdls.find(m => m.name === localModel)) {
@@ -142,10 +140,18 @@ export default function LlmSettingsPanel() {
             : null}
       </button>
 
+      {/* Backdrop overlay */}
+      {open && (
+        <div 
+          className="fixed inset-0 z-40" 
+          onClick={() => { setOpen(false); setShowModelList(false); }} 
+        />
+      )}
+
       {/* Panel */}
       {open && (
         <div
-          className="absolute right-0 top-full mt-2 z-50 glass rounded-xl shadow-card"
+          className="absolute left-0 top-full mt-2 z-50 bg-surface-card border border-surface-border rounded-2xl shadow-2xl backdrop-blur-2xl animate-in slide-in-from-top-2 duration-150 overflow-hidden"
           style={{ width: 340 }}
         >
           {/* Header */}

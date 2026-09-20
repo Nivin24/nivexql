@@ -11,6 +11,33 @@ from logger import logger
 
 router = APIRouter()
 
+def _check_response(resp: httpx.Response):
+    if resp.is_error:
+        try:
+            body = resp.json()
+            if isinstance(body, dict):
+                error_obj = body.get("error")
+                if isinstance(error_obj, dict):
+                    err_detail = error_obj.get("message") or error_obj.get("status") or resp.text
+                else:
+                    err_detail = error_obj or resp.text
+            else:
+                err_detail = resp.text
+        except Exception:
+            err_detail = resp.text
+        raise Exception(f"LLM API error ({resp.status_code}): {err_detail}")
+
+def _get_ollama_content(resp: httpx.Response) -> str:
+    try:
+        data = resp.json()
+        if isinstance(data, dict):
+            msg = data.get("message")
+            if isinstance(msg, dict):
+                return msg.get("content", "").strip()
+    except Exception:
+        pass
+    raise Exception(f"Invalid Ollama response structure: {resp.text}")
+
 def _get_favorites_path():
     return os.path.join(os.path.expanduser("~"), ".sql_viewer_favorites.json")
 
@@ -45,9 +72,11 @@ def update_llm_config(config: dict):
     return _llm_config
 
 @router.get("/api/llm/status")
-async def get_llm_status():
-    provider = _llm_config.get("provider", "ollama")
-    endpoint = _llm_config.get("endpoint", "http://localhost:11434")
+async def get_llm_status(provider: str = None, endpoint: str = None):
+    if provider is None:
+        provider = _llm_config.get("provider", "ollama")
+    if endpoint is None:
+        endpoint = _llm_config.get("endpoint", "http://localhost:11434")
     logger.info(f"Checking LLM status for provider: '{provider}'")
     
     if provider == "ollama":
@@ -63,9 +92,11 @@ async def get_llm_status():
     return {"status": "ok", "provider": provider, "models": []}
 
 @router.get("/api/llm/models")
-async def get_llm_models():
-    provider = _llm_config.get("provider", "ollama")
-    endpoint = _llm_config.get("endpoint", "http://localhost:11434")
+async def get_llm_models(provider: str = None, endpoint: str = None):
+    if provider is None:
+        provider = _llm_config.get("provider", "ollama")
+    if endpoint is None:
+        endpoint = _llm_config.get("endpoint", "http://localhost:11434")
     logger.info(f"Fetching models lists from provider: '{provider}'")
     
     if provider == "ollama":
@@ -163,12 +194,14 @@ async def generate_sql(req: GenerateRequest):
                     "messages": messages, 
                     "stream": False
                 })
-                response_text = resp.json()["message"]["content"].strip()
+                _check_response(resp)
+                response_text = _get_ollama_content(resp)
             elif provider == "openai":
                 resp = await client.post("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {api_key}"}, json={
                     "model": model, 
                     "messages": messages
                 })
+                _check_response(resp)
                 response_text = resp.json()["choices"][0]["message"]["content"].strip()
             elif provider == "gemini":
                 # For Gemini, consolidate chat history into a single structured prompt text
@@ -184,6 +217,7 @@ async def generate_sql(req: GenerateRequest):
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
                 payload = {"contents": [{"parts": [{"text": f"{system_prompt}{history_text}\n\nUser Question: {req.prompt}"}]}]}
                 resp = await client.post(url, json=payload)
+                _check_response(resp)
                 response_text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
     except Exception as e:
         logger.error(f"LLM API Gateway error: {e}", exc_info=True)
@@ -248,14 +282,17 @@ async def fix_sql(req: FixRequest):
         async with httpx.AsyncClient(timeout=300.0) as client:
             if provider == "ollama":
                 resp = await client.post(f"{_llm_config['endpoint']}/api/chat", json={"model": model, "messages": messages, "stream": False})
-                sql = resp.json()["message"]["content"].strip()
+                _check_response(resp)
+                sql = _get_ollama_content(resp)
             elif provider == "openai":
                 resp = await client.post("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {api_key}"}, json={"model": model, "messages": messages})
+                _check_response(resp)
                 sql = resp.json()["choices"][0]["message"]["content"].strip()
             elif provider == "gemini":
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
                 payload = {"contents": [{"parts": [{"text": f"{system_prompt}\n\n{user_message}"}]}]}
                 resp = await client.post(url, json=payload)
+                _check_response(resp)
                 sql = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
     except Exception as e:
         logger.error(f"SQL debugger LLM error: {e}", exc_info=True)
@@ -284,16 +321,19 @@ async def analyze_results(req: AnalyzeRequest):
                 resp = await client.post(f"{_llm_config['endpoint']}/api/chat", json={
                     "model": model, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}], "stream": False
                 })
-                insights = resp.json()["message"]["content"].strip()
+                _check_response(resp)
+                insights = _get_ollama_content(resp)
             elif provider == "openai":
                 resp = await client.post("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {api_key}"}, json={
                     "model": model, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}]
                 })
+                _check_response(resp)
                 insights = resp.json()["choices"][0]["message"]["content"].strip()
             elif provider == "gemini":
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
                 payload = {"contents": [{"parts": [{"text": f"{system_prompt}\n\n{user_message}"}]}]}
                 resp = await client.post(url, json=payload)
+                _check_response(resp)
                 insights = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
     except Exception as e:
         logger.error(f"Analysis failed: {e}")
@@ -335,15 +375,18 @@ async def generate_followups(req: dict):
                 resp = await client.post(f"{_llm_config['endpoint']}/api/chat", json={
                     "model": model, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}], "stream": False
                 })
-                response_text = resp.json()["message"]["content"].strip()
+                _check_response(resp)
+                response_text = _get_ollama_content(resp)
             elif provider == "openai":
                 resp = await client.post("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {api_key}"}, json={
                     "model": model, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}]
                 })
+                _check_response(resp)
                 response_text = resp.json()["choices"][0]["message"]["content"].strip()
             elif provider == "gemini":
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
                 resp = await client.post(url, json={"contents": [{"parts": [{"text": f"{system_prompt}\n\n{user_message}"}]}]})
+                _check_response(resp)
                 response_text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
             
             # Parse JSON array
@@ -433,17 +476,20 @@ async def plan_dashboard_niches(req: PlannerRequest):
                     "messages": messages, 
                     "stream": False
                 })
-                response_text = resp.json()["message"]["content"].strip()
+                _check_response(resp)
+                response_text = _get_ollama_content(resp)
             elif provider == "openai":
                 resp = await client.post("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {api_key}"}, json={
                     "model": model, 
                     "messages": messages
                 })
+                _check_response(resp)
                 response_text = resp.json()["choices"][0]["message"]["content"].strip()
             elif provider == "gemini":
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
                 payload = {"contents": [{"parts": [{"text": system_prompt}]}]}
                 resp = await client.post(url, json=payload)
+                _check_response(resp)
                 response_text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
     except Exception as e:
         logger.error(f"LLM API Gateway error in planner: {e}", exc_info=True)

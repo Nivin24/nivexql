@@ -79,11 +79,10 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
     setChecking(true);
     setErrorMsg('');
     try {
-      await apiSetLlmConfig(localProvider, localEndpoint, localModel, localApiKey);
-      const data = await apiLlmStatus();
+      const data = await apiLlmStatus(localProvider, localEndpoint);
       setLlmStatus(data.status === 'ok' ? 'ok' : 'error');
 
-      const { models: mdls } = await apiLlmModels();
+      const { models: mdls } = await apiLlmModels(localProvider, localEndpoint);
       setModels(mdls);
 
       if (mdls.length && !mdls.find(m => m.name === localModel)) {
